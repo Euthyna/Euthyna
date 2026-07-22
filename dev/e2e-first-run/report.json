@@ -1,0 +1,122 @@
+{
+  "date": "2026-07-21",
+  "sessions": {
+    "auto-2f138ba5dc": {
+      "calls": 1,
+      "prompt_tokens": 34,
+      "completion_tokens": 3,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": null,
+      "cached_fraction": 0.0
+    },
+    "ses_078388407ffeOlODhHa3RVYXFQ": {
+      "calls": 2,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": 0.0082,
+      "cached_fraction": null
+    },
+    "ses_07837be68ffeGkQG86lhijD9FD": {
+      "calls": 2,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": 0.0082,
+      "cached_fraction": null
+    },
+    "ses_078377984ffenmnljc0crJm7LL": {
+      "calls": 96,
+      "prompt_tokens": 36806,
+      "completion_tokens": 11012,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": 0.0039,
+      "cached_fraction": 0.0
+    },
+    "auto-51dadb3782": {
+      "calls": 1,
+      "prompt_tokens": 172,
+      "completion_tokens": 21,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": null,
+      "cached_fraction": 0.0
+    },
+    "ses_0782c1370ffe3GIyico1pMr5Nb": {
+      "calls": 2,
+      "prompt_tokens": 7934,
+      "completion_tokens": 40,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": 0.0082,
+      "cached_fraction": 0.0
+    },
+    "ses_0782a8788ffem5G3ayciWLT3rK": {
+      "calls": 2,
+      "prompt_tokens": 8047,
+      "completion_tokens": 331,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": 0.0083,
+      "cached_fraction": 0.0
+    },
+    "auto-dc07804169": {
+      "calls": 1,
+      "prompt_tokens": 155,
+      "completion_tokens": 20,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen3-8B-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": null,
+      "cached_fraction": 0.0
+    },
+    "ses_0782585aaffe8VRPisFse12YjW": {
+      "calls": 43,
+      "prompt_tokens": 450861,
+      "completion_tokens": 4503,
+      "cached_tokens": 0,
+      "cost_usd": 0.0,
+      "models": [
+        "mlx-community/Qwen3-8B-4bit"
+      ],
+      "injected": 0,
+      "mean_prefix_stable_ratio": 0.9288,
+      "cached_fraction": 0.0
+    }
+  }
+}

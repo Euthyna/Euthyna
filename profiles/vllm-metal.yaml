@@ -1,7 +1,7 @@
 name: vllm-metal
 dialect: openai
 base_url: http://127.0.0.1:8000
-model: mlx-community/Qwen2.5-Coder-7B-Instruct-4bit
+model: mlx-community/Qwen3-8B-4bit
 accountant_model: local/vllm-metal
 price_date: '2026-07-21'
 prices_per_1m:
@@ -23,15 +23,15 @@ probe:
   date: '2026-07-21'
   method: two identical long-prefix chat completions, temperature 0
   first_usage:
-    prompt_tokens: 2637
-    total_tokens: 2640
-    completion_tokens: 3
+    prompt_tokens: 2641
+    total_tokens: 2643
+    completion_tokens: 2
     prompt_tokens_details: null
   second_usage:
-    prompt_tokens: 2637
-    total_tokens: 2640
-    completion_tokens: 3
+    prompt_tokens: 2641
+    total_tokens: 2643
+    completion_tokens: 2
     prompt_tokens_details: null
   latency:
-    first_ms: 430.0
-    second_ms: 329.2
+    first_ms: 13418.3
+    second_ms: 149.0
