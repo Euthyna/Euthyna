@@ -1,0 +1,11 @@
+{
+  "tag": "qwen3-0.6b",
+  "model": "mlx-community/Qwen3-0.6B-4bit",
+  "date": "2026-07-21",
+  "n": 174,
+  "parse_fail_rate": 0.0,
+  "l1_accuracy": 0.1322,
+  "waste_exact_set": 0.3333,
+  "waste_micro_f1": 0.0,
+  "waste_any_balanced_acc": 0.5
+}

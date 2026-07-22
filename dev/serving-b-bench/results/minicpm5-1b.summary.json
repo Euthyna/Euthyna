@@ -1,0 +1,11 @@
+{
+  "tag": "minicpm5-1b",
+  "model": "openbmb/MiniCPM5-1B-MLX",
+  "date": "2026-07-21",
+  "n": 174,
+  "parse_fail_rate": 0.8218,
+  "l1_accuracy": 0.7742,
+  "waste_exact_set": 0.0,
+  "waste_micro_f1": 0.0769,
+  "waste_any_balanced_acc": 0.5
+}

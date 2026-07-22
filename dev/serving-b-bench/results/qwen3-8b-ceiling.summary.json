@@ -1,0 +1,11 @@
+{
+  "tag": "qwen3-8b-ceiling",
+  "model": "mlx-community/Qwen3-8B-4bit",
+  "date": "2026-07-21",
+  "n": 174,
+  "parse_fail_rate": 0.0,
+  "l1_accuracy": 0.2586,
+  "waste_exact_set": 0.0172,
+  "waste_micro_f1": 0.0924,
+  "waste_any_balanced_acc": 0.4957
+}

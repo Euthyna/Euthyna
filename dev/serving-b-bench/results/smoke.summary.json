@@ -1,0 +1,11 @@
+{
+  "tag": "smoke",
+  "model": "openbmb/MiniCPM5-1B-MLX",
+  "date": "2026-07-21",
+  "n": 3,
+  "parse_fail_rate": 0.6667,
+  "l1_accuracy": 1.0,
+  "waste_exact_set": 0.0,
+  "waste_micro_f1": 0.1667,
+  "waste_any_balanced_acc": 0.5
+}

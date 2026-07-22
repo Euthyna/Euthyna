@@ -1,0 +1,41 @@
+{
+  "n": 174,
+  "cv": "5-fold stratified, out-of-fold predictions",
+  "l1_accuracy_logreg": 0.592,
+  "l1_balanced_acc_logreg": 0.3933,
+  "l1_accuracy_gbdt": 0.7931,
+  "l1_balanced_acc_gbdt": 0.356,
+  "waste_any_balanced_acc_gbdt": 0.7026,
+  "waste_per_label_gbdt": {
+    "EDIT_TOOL_MECHANICAL_FAILURE": {
+      "n_pos": 25,
+      "balanced_acc": 0.5431,
+      "f1": 0.2
+    },
+    "PATCH_CHURN": {
+      "n_pos": 18,
+      "balanced_acc": 0.5139,
+      "f1": 0.1212
+    },
+    "ENVIRONMENT_BLOCKED": {
+      "n_pos": 15,
+      "balanced_acc": 0.5541,
+      "f1": 0.1905
+    },
+    "VERIFICATION_GAP": {
+      "n_pos": 14,
+      "balanced_acc": 0.6661,
+      "f1": 0.4348
+    },
+    "FAILED_RECOVERY": {
+      "n_pos": 12,
+      "balanced_acc": 0.7855,
+      "f1": 0.6667
+    },
+    "CONTEXT_BLOAT": {
+      "n_pos": 11,
+      "balanced_acc": 0.5363,
+      "f1": 0.1333
+    }
+  }
+}

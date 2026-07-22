@@ -1,0 +1,11 @@
+{
+  "tag": "lfm2.5-1.2b",
+  "model": "mlx-community/LFM2.5-1.2B-Instruct-4bit",
+  "date": "2026-07-21",
+  "n": 174,
+  "parse_fail_rate": 1.0,
+  "l1_accuracy": null,
+  "waste_exact_set": null,
+  "waste_micro_f1": 0.0,
+  "waste_any_balanced_acc": null
+}
