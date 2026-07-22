@@ -20,16 +20,18 @@ import yaml
 _FILLER = " ".join(f"calibration line {i}: the quick brown fox jumps over the lazy dog." for i in range(160))
 
 
-def _post_json(url: str, payload: dict, timeout: float = 120.0) -> dict:
+def _post_json(url: str, payload: dict, timeout: float = 120.0, headers: dict = {}) -> dict:
     req = urllib.request.Request(
-        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
+        url, data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", **headers},
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 
-def _get_json(url: str, timeout: float = 10.0) -> dict:
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
+def _get_json(url: str, timeout: float = 10.0, headers: dict = {}) -> dict:
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 
@@ -58,12 +60,17 @@ def measure_cache_schema(first_usage: dict, second_usage: dict) -> dict:
     return schema
 
 
-def probe(base_url: str, name: str, out_dir: str = "profiles") -> Path:
+def probe(base_url: str, name: str, out_dir: str = "profiles",
+          api_key_env: Optional[str] = None, model: Optional[str] = None) -> Path:
+    from .util import bearer
+
     base_url = base_url.rstrip("/")
     if base_url.endswith("/v1"):  # accept both forms; paths below append /v1/...
         base_url = base_url[:-3].rstrip("/")
-    models = _get_json(f"{base_url}/v1/models")
-    model = models["data"][0]["id"]
+    auth = bearer(api_key_env)
+    if model is None:
+        models = _get_json(f"{base_url}/v1/models", headers=auth)
+        model = models["data"][0]["id"]
 
     messages = [
         {"role": "system", "content": "You are a terse assistant. " + _FILLER},
@@ -72,9 +79,9 @@ def probe(base_url: str, name: str, out_dir: str = "profiles") -> Path:
     payload = {"model": model, "messages": messages, "max_tokens": 8, "temperature": 0}
     import time
     t0 = time.monotonic()
-    first = _post_json(f"{base_url}/v1/chat/completions", payload)
+    first = _post_json(f"{base_url}/v1/chat/completions", payload, headers=auth)
     t1 = time.monotonic()
-    second = _post_json(f"{base_url}/v1/chat/completions", payload)
+    second = _post_json(f"{base_url}/v1/chat/completions", payload, headers=auth)
     t2 = time.monotonic()
     first_usage, second_usage = first.get("usage") or {}, second.get("usage") or {}
     latency = {"first_ms": round((t1 - t0) * 1000, 1), "second_ms": round((t2 - t1) * 1000, 1)}
@@ -85,6 +92,7 @@ def probe(base_url: str, name: str, out_dir: str = "profiles") -> Path:
         "name": name,
         "dialect": "openai",
         "base_url": base_url,
+        "api_key_env": api_key_env,  # env var NAME only; the key never touches disk
         "model": model,
         "accountant_model": f"local/{name}",
         "price_date": today,
@@ -109,7 +117,8 @@ def probe(base_url: str, name: str, out_dir: str = "profiles") -> Path:
 
 def run(args) -> int:
     try:
-        out = probe(args.base_url, args.name, args.out)
+        out = probe(args.base_url, args.name, args.out,
+                    api_key_env=args.api_key_env, model=args.model)
     except (urllib.error.URLError, OSError) as exc:
         print(f"probe: backend unreachable at {args.base_url} ({exc}) — is it running?")
         return 1

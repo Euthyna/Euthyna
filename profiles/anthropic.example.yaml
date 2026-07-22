@@ -1,0 +1,30 @@
+# Frontier-API placeholder (Anthropic dialect, /v1/messages). Copy to anthropic.yaml,
+# fill the prices, then run the gateway with:
+#   euthyna up --profile profiles/vllm-metal.yaml --anthropic-profile profiles/anthropic.yaml
+#
+# Works with Claude Code: ANTHROPIC_BASE_URL=http://127.0.0.1:4517 — auth headers
+# (including anthropic-beta OAuth) pass through untouched; the key never enters
+# Euthyna config. Raw Anthropic usage (input_tokens / cache_read_input_tokens /
+# cache_creation_input_tokens) is normalized by the tap; the paths below refer to
+# the normalized shape.
+name: anthropic
+dialect: anthropic
+base_url: https://api.anthropic.com
+api_key_env: ANTHROPIC_API_KEY
+accountant_model: anthropic/frontier-EDIT-ME  # e.g. anthropic/claude-sonnet-5
+price_date: "2026-07-21"                       # date you copied the price sheet
+prices_per_1m:                                 # EDIT to the current pricing page
+  input: 0.0
+  cached_input: 0.0
+  output: 0.0
+  cache_creation: 0.0                          # Anthropic bills cache writes
+cache_schema:
+  cached_tokens:
+    surfaces: true
+    path: [prompt_tokens_details, cached_tokens]
+  cache_creation_tokens:
+    surfaces: true
+    path: [prompt_tokens_details, cache_creation_tokens]
+  reasoning_tokens:
+    surfaces: false
+    path: null

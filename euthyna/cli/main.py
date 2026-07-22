@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--base-url", default="http://127.0.0.1:8000")
     probe.add_argument("--name", default="vllm-metal")
     probe.add_argument("--out", default="profiles")
+    probe.add_argument("--api-key-env", default=None, metavar="ENV_NAME",
+                       help="env var holding the API key for cloud backends "
+                            "(the name goes in the profile; the key never does)")
+    probe.add_argument("--model", default=None,
+                       help="model id to probe (default: first from /v1/models)")
 
     report = sub.add_parser("report", help="aggregate a day's ledger")
     report.add_argument("--date", default=None, help="YYYY-MM-DD (default: today)")
@@ -42,7 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze = sub.add_parser("analyze", help="Serving-B advisory read of today's ledger+traces "
                                              "(recommendations only; never acts)")
-    analyze.add_argument("--advisor-url", default="http://127.0.0.1:8001")
+    analyze.add_argument("--advisor-url", default="http://127.0.0.1:8001",
+                         help="any OpenAI-dialect endpoint — local Serving B or a "
+                              "frontier API (default: %(default)s)")
+    analyze.add_argument("--advisor-api-key-env", default=None, metavar="ENV_NAME")
+    analyze.add_argument("--advisor-model", default=None,
+                         help="model id (default: first from the endpoint's /v1/models)")
     analyze.add_argument("--date", default=None)
     return parser
 

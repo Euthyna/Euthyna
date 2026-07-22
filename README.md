@@ -58,9 +58,12 @@ agent (opencode, …)
   All state lives under `~/.euthyna`; override with `EUTHYNA_HOME`.
 - **Profiles** — `euthyna probe` measures what a backend's usage payloads actually
   surface and writes the evidence into `profiles/<name>.yaml`. Nothing is assumed.
-- **Serving-B slot** — `euthyna analyze` feeds the day's *metadata* to a small local
-  model (default: MiniCPM5-1B on a second port) which annotates waste and recommends
-  static config changes. Advisory only; it never touches the request path.
+- **Serving-B slot** — `euthyna analyze` feeds the day's *metadata* to an advisor
+  model (default: a small local model on a second port) which annotates waste and
+  recommends static config changes. Advisory only; it never touches the request path.
+- **Local by default, frontier by choice** — both the backend and the advisor accept
+  any OpenAI/Anthropic-dialect endpoint (`profiles/*.example.yaml`); API keys are
+  referenced by env-var name only and never stored.
 
 The one mutation the gateway is allowed: injecting `stream_options.include_usage`
 into streaming OpenAI requests so usage is observable at all — always flagged

@@ -15,8 +15,9 @@ import yaml
 from euthyna.gateway.config import DEFAULT_PORT
 
 
-def _reach(url: str, timeout: float = 5.0):
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
+def _reach(url: str, timeout: float = 5.0, headers: dict = {}):
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 
@@ -30,19 +31,25 @@ def run(args) -> int:
 
     profile_path = Path(args.profile)
     base_url = None
+    api_key_env = None
     if profile_path.exists():
         try:
             data = yaml.safe_load(profile_path.read_text())
             base_url = data["base_url"]
+            api_key_env = data.get("api_key_env")
             checks.append(("PASS", "profile", f"{profile_path} (backend {base_url})"))
         except Exception as exc:
             checks.append(("FAIL", "profile", f"{profile_path}: {exc}"))
     else:
         checks.append(("FAIL", "profile", f"{profile_path} not found — run `euthyna probe` first"))
 
+    if api_key_env and not os.environ.get(api_key_env):
+        checks.append(("WARN", "api key", f"profile expects env var {api_key_env} — not set"))
+
     if base_url:
+        from .util import bearer
         try:
-            models = _reach(f"{base_url.rstrip('/')}/v1/models")
+            models = _reach(f"{base_url.rstrip('/')}/v1/models", headers=bearer(api_key_env))
             checks.append(("PASS", "backend", models["data"][0]["id"]))
         except Exception as exc:
             checks.append(("FAIL", "backend", f"{base_url}: {exc}"))

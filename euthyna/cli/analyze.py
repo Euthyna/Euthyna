@@ -41,10 +41,15 @@ DATA:
 """
 
 
-def _serving_b(base_url: str, text: str) -> tuple[str, str]:
+def _serving_b(base_url: str, text: str, api_key_env=None, model=None) -> tuple[str, str]:
+    from .util import bearer
+
     base = base_url.rstrip("/")
-    models = json.loads(urllib.request.urlopen(f"{base}/v1/models", timeout=10).read())
-    model = models["data"][0]["id"]
+    auth = bearer(api_key_env)
+    if model is None:
+        req = urllib.request.Request(f"{base}/v1/models", headers=auth)
+        models = json.loads(urllib.request.urlopen(req, timeout=10).read())
+        model = models["data"][0]["id"]
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": text}],
@@ -54,7 +59,7 @@ def _serving_b(base_url: str, text: str) -> tuple[str, str]:
     req = urllib.request.Request(
         f"{base}/v1/chat/completions",
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **auth},
     )
     body = json.loads(urllib.request.urlopen(req, timeout=600).read())
     content = body["choices"][0]["message"]["content"] or ""
@@ -92,7 +97,9 @@ def run(args) -> int:
     text = PROMPT + json.dumps(data, indent=1, default=str)
 
     try:
-        advice, model = _serving_b(args.advisor_url, text)
+        advice, model = _serving_b(args.advisor_url, text,
+                                   api_key_env=args.advisor_api_key_env,
+                                   model=args.advisor_model)
     except Exception as exc:
         print(f"analyze: Serving B unreachable at {args.advisor_url} ({exc})")
         print("analyze: start it separately (see docs/SETUP.md §Serving B) — "

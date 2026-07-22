@@ -1,6 +1,7 @@
 name: vllm-metal
 dialect: openai
 base_url: http://127.0.0.1:8000
+api_key_env: null
 model: mlx-community/Qwen3-8B-4bit
 accountant_model: local/vllm-metal
 price_date: '2026-07-21'
@@ -33,5 +34,5 @@ probe:
     completion_tokens: 2
     prompt_tokens_details: null
   latency:
-    first_ms: 13418.3
-    second_ms: 149.0
+    first_ms: 39062.5
+    second_ms: 166.4

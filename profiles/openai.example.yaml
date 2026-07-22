@@ -1,0 +1,28 @@
+# Frontier-API placeholder (OpenAI dialect). Copy to openai.yaml, fill the prices,
+# export the key env var, then verify with:
+#   euthyna probe --base-url https://api.openai.com --name openai --api-key-env OPENAI_API_KEY
+#
+# The key itself NEVER goes in this file or any config — only the env var NAME.
+# The gateway never injects auth either: your agent (opencode etc.) sends its own
+# Authorization header and Euthyna passes it through byte-faithfully.
+name: openai
+dialect: openai
+base_url: https://api.openai.com
+api_key_env: OPENAI_API_KEY
+accountant_model: openai/frontier-EDIT-ME     # e.g. openai/gpt-5-5
+price_date: "2026-07-21"                       # date you copied the price sheet
+prices_per_1m:                                 # USD per 1M tokens — EDIT to the
+  input: 0.0                                   # provider's CURRENT pricing page
+  cached_input: 0.0
+  output: 0.0
+  cache_creation: null                         # OpenAI has no cache-write line
+cache_schema:                                  # stable OpenAI behavior; probe verifies
+  cached_tokens:
+    surfaces: true
+    path: [prompt_tokens_details, cached_tokens]
+  cache_creation_tokens:
+    surfaces: false
+    path: null
+  reasoning_tokens:
+    surfaces: true
+    path: [completion_tokens_details, reasoning_tokens]

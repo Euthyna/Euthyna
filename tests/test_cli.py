@@ -55,9 +55,32 @@ def test_parser_subcommands():
     parser = build_parser()
     assert parser.parse_args(["up", "--port", "5000"]).port == 5000
     assert parser.parse_args(["probe"]).base_url == "http://127.0.0.1:8000"
+    assert parser.parse_args(["probe"]).api_key_env is None
+    assert parser.parse_args(
+        ["probe", "--api-key-env", "OPENAI_API_KEY"]).api_key_env == "OPENAI_API_KEY"
     assert parser.parse_args(["report", "--json"]).json is True
     assert parser.parse_args(["doctor"]).host == "opencode"
-    assert parser.parse_args(["analyze"]).advisor_url == "http://127.0.0.1:8001"
+    args = parser.parse_args(["analyze", "--advisor-url", "https://api.openai.com",
+                              "--advisor-api-key-env", "K", "--advisor-model", "m"])
+    assert (args.advisor_url, args.advisor_api_key_env, args.advisor_model) == (
+        "https://api.openai.com", "K", "m")
+
+
+def test_bearer_reads_env_by_name(monkeypatch):
+    from euthyna.cli.util import bearer
+    assert bearer(None) == {}
+    assert bearer("EUTHYNA_TEST_KEY") == {}  # named but unset → no header
+    monkeypatch.setenv("EUTHYNA_TEST_KEY", "sk-secret")
+    assert bearer("EUTHYNA_TEST_KEY") == {"Authorization": "Bearer sk-secret"}
+
+
+def test_example_profiles_load_and_register(registries):
+    from pathlib import Path
+    for name in ("openai.example.yaml", "anthropic.example.yaml"):
+        p = Path(__file__).parent.parent / "profiles" / name
+        profile = Profile.load(p)
+        assert profile.raw.get("api_key_env")  # placeholder names the env var
+        profile.register()  # syntactically valid: registers without error
 
 
 def test_report_aggregate_anthropic_row_without_cost():

@@ -133,6 +133,40 @@ sees **metadata only** (counts, ratios, costs — never message content) and its
 is banner-labeled advisory; nothing consumes it automatically. v0 ships the slot, not
 model quality: MiniCPM5-1B annotates; recommendation quality is gated work (Part 2).
 
+### 6. Frontier APIs — the same pipeline, bigger models
+
+Both slots take any OpenAI/Anthropic-dialect endpoint; local serving is the default,
+not a limit. Key hygiene rule everywhere: **configs and profiles store only the NAME
+of an env var** (`api_key_env: OPENAI_API_KEY`), never the key itself.
+
+**Backend (Serving A → cloud).** Copy `profiles/openai.example.yaml` →
+`profiles/openai.yaml`, fill the current price sheet, then:
+
+```bash
+export OPENAI_API_KEY=...   # your key, env only
+euthyna probe --base-url https://api.openai.com --name openai \
+  --api-key-env OPENAI_API_KEY --model <model-id>
+euthyna up --profile profiles/openai.yaml
+```
+
+Your agent keeps its own key: opencode's provider `apiKey` (or Claude Code's OAuth
+headers, including `anthropic-beta`) rides through the gateway untouched — Euthyna
+never injects or stores auth. For the Anthropic dialect, add
+`--anthropic-profile profiles/anthropic.yaml` and point Claude Code at
+`ANTHROPIC_BASE_URL=http://127.0.0.1:4517`. Now the ledger shows real dollars and
+real `cached_tokens` instead of the local $0 sheet.
+
+**Perception (Serving B → cloud).** The advisor slot is just an endpoint URL:
+
+```bash
+euthyna analyze --advisor-url https://api.openai.com \
+  --advisor-api-key-env OPENAI_API_KEY --advisor-model <model-id>
+```
+
+Privacy note: `analyze` sends **metadata only** (counts, ratios, costs — never
+message content), so pointing it at a cloud model leaks no prompt text. It remains
+advisory-only regardless of how big the model is.
+
 ---
 
 ## Part 2 — Model-side development (TBD)
