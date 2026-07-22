@@ -1,0 +1,251 @@
+"""Gateway tests against in-process mock backends (both dialects, stream + non-stream)."""
+import copy
+import json
+
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
+
+from euthyna.core import accountant
+from euthyna.gateway import GatewayConfig, Profile, create_app
+
+NONSTREAM_BODY = json.dumps({
+    "id": "cmpl-1", "model": "test-model",
+    "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}}],
+    "usage": {"prompt_tokens": 100, "completion_tokens": 10,
+              "prompt_tokens_details": {"cached_tokens": 80}},
+}).encode()
+
+
+def sse(*events):
+    return "".join(f"data: {json.dumps(e)}\n\n" for e in events) + "data: [DONE]\n\n"
+
+
+async def openai_chat(request):
+    body = await request.json()
+    request.app["seen"].append({"headers": dict(request.headers), "body": body})
+    if body.get("stream"):
+        events = [{"model": "test-model", "choices": [{"delta": {"content": "hi"}}]}]
+        if (body.get("stream_options") or {}).get("include_usage"):
+            events.append({"model": "test-model", "choices": [],
+                           "usage": {"prompt_tokens": 100, "completion_tokens": 10,
+                                     "prompt_tokens_details": {"cached_tokens": 80}}})
+        return web.Response(text=sse(*events), content_type="text/event-stream")
+    return web.Response(body=NONSTREAM_BODY, content_type="application/json")
+
+
+async def anthropic_messages(request):
+    body = await request.json()
+    request.app["seen"].append({"headers": dict(request.headers), "body": body})
+    events = [
+        {"type": "message_start", "message": {"model": "claude-test",
+         "usage": {"input_tokens": 50, "cache_read_input_tokens": 40,
+                   "cache_creation_input_tokens": 10}}},
+        {"type": "message_delta", "usage": {"output_tokens": 7}},
+    ]
+    return web.Response(text=sse(*events), content_type="text/event-stream")
+
+
+async def models_list(request):
+    return web.json_response({"data": [{"id": "test-model"}]})
+
+
+@pytest.fixture
+async def backend():
+    app = web.Application()
+    app["seen"] = []
+    app.router.add_post("/v1/chat/completions", openai_chat)
+    app.router.add_post("/v1/messages", anthropic_messages)
+    app.router.add_get("/v1/models", models_list)
+    server = TestServer(app)
+    await server.start_server()
+    yield server
+    await server.close()
+
+
+@pytest.fixture
+def registries():
+    schemas, sheet = copy.deepcopy(accountant.PROVIDER_CACHE_SCHEMAS), copy.deepcopy(accountant.PRICE_SHEET)
+    yield
+    accountant.PROVIDER_CACHE_SCHEMAS.clear()
+    accountant.PROVIDER_CACHE_SCHEMAS.update(schemas)
+    accountant.PRICE_SHEET.clear()
+    accountant.PRICE_SHEET.update(sheet)
+
+
+def make_config(backend, tmp_path, **kwargs):
+    base = f"http://127.0.0.1:{backend.port}"
+    profile = Profile(
+        name="test", dialect="openai", base_url=base,
+        accountant_model="local/test", price_date="2026-07-21",
+        raw={"cache_schema": {"cached_tokens": {
+                 "surfaces": True, "path": ["prompt_tokens_details", "cached_tokens"]}},
+             "prices_per_1m": {"input": 0.0, "cached_input": 0.0, "output": 0.0}},
+    )
+    anthropic = Profile(
+        name="test-anthropic", dialect="anthropic", base_url=base,
+        accountant_model="anthropic/claude-cache", price_date="2026-07-15",
+    )
+    return GatewayConfig(profile=profile, anthropic_profile=anthropic,
+                         home=tmp_path / "euthyna-home", **kwargs)
+
+
+@pytest.fixture
+async def gateway(backend, tmp_path, registries):
+    config = make_config(backend, tmp_path)
+    client = TestClient(TestServer(create_app(config)))
+    await client.start_server()
+    yield client, config, backend.app["seen"]
+    await client.close()
+
+
+def ledger_rows(config):
+    rows = []
+    if config.ledger_dir.exists():
+        for f in sorted(config.ledger_dir.glob("*.jsonl")):
+            rows += [json.loads(l) for l in f.read_text().splitlines()]
+    return rows
+
+
+async def test_nonstream_passthrough_byte_faithful_and_ledger(gateway):
+    client, config, _ = gateway
+    resp = await client.post("/v1/chat/completions", json={
+        "model": "test-model", "messages": [{"role": "user", "content": "hello"}]})
+    assert resp.status == 200
+    assert await resp.read() == NONSTREAM_BODY  # body bytes untouched
+
+    (row,) = ledger_rows(config)
+    assert row["usage"]["prompt_tokens"] == 100
+    assert row["gateway_injected"] is False
+    assert row["cost"]["native_tokens"]["cached_tokens"] == 80
+    assert row["cost"]["observed_flags"]["cached_tokens"] is True
+    assert row["cost"]["list_cost_usd"] == 0.0  # local backend prices are $0
+    assert row["cost_error"] is None
+
+
+async def test_stream_injects_usage_and_flags(gateway):
+    client, config, seen = gateway
+    resp = await client.post("/v1/chat/completions", json={
+        "model": "test-model", "stream": True,
+        "messages": [{"role": "user", "content": "hello"}]})
+    text = (await resp.read()).decode()
+    assert text.rstrip().endswith("data: [DONE]")
+    assert seen[-1]["body"]["stream_options"] == {"include_usage": True}
+
+    (row,) = ledger_rows(config)
+    assert row["gateway_injected"] is True
+    assert row["request_sha_before"] != row["request_sha_after"]
+    assert row["usage"]["completion_tokens"] == 10
+
+
+async def test_stream_no_injection_when_client_asked(gateway):
+    client, config, seen = gateway
+    await client.post("/v1/chat/completions", json={
+        "model": "test-model", "stream": True, "stream_options": {"include_usage": True},
+        "messages": [{"role": "user", "content": "hello"}]})
+    assert ledger_rows(config)[0]["gateway_injected"] is False
+
+
+async def test_anthropic_stream_usage_normalized(gateway):
+    client, config, _ = gateway
+    await client.post("/v1/messages", json={
+        "model": "claude-test", "stream": True,
+        "messages": [{"role": "user", "content": "hello"}]})
+    (row,) = ledger_rows(config)
+    assert row["usage"] == {"input_tokens": 50, "cache_read_input_tokens": 40,
+                            "cache_creation_input_tokens": 10, "output_tokens": 7}
+    native = row["cost"]["native_tokens"]
+    assert native["prompt_tokens"] == 100  # 50 + 40 + 10 (OpenAI convention includes cache)
+    assert native["cached_tokens"] == 40
+    assert native["cache_creation_tokens"] == 10
+    assert row["cost"]["observed_flags"]["cached_tokens"] is True
+
+
+async def test_transparent_mode_pure_pipe(backend, tmp_path, registries):
+    config = make_config(backend, tmp_path, transparent=True)
+    client = TestClient(TestServer(create_app(config)))
+    await client.start_server()
+    try:
+        await client.post("/v1/chat/completions", json={
+            "model": "test-model", "stream": True,
+            "messages": [{"role": "user", "content": "hello"}]})
+        assert "stream_options" not in backend.app["seen"][-1]["body"]  # no mutation
+        assert not config.ledger_dir.exists()  # no observation
+    finally:
+        await client.close()
+
+
+async def test_tap_crash_is_fail_open(gateway, monkeypatch):
+    client, config, _ = gateway
+    from euthyna.gateway.taps import Taps
+    monkeypatch.setattr(Taps, "observe", lambda self, **kw: 1 / 0)
+    resp = await client.post("/v1/chat/completions", json={
+        "model": "test-model", "messages": [{"role": "user", "content": "hello"}]})
+    assert resp.status == 200
+    assert await resp.read() == NONSTREAM_BODY
+
+
+async def test_prefix_monitor_chains_sessions(gateway):
+    client, config, _ = gateway
+    first = [{"role": "system", "content": "sys"}, {"role": "user", "content": "q1"}]
+    grown = first + [{"role": "assistant", "content": "a1"}, {"role": "user", "content": "q2"}]
+    await client.post("/v1/chat/completions", json={"model": "m", "messages": first})
+    await client.post("/v1/chat/completions", json={"model": "m", "messages": grown})
+    row1, row2 = ledger_rows(config)
+    assert row1["session"] == row2["session"]  # chained without any header
+    assert row1["prefix_stable_ratio"] is None
+    assert row2["prefix_stable_ratio"] == 1.0
+
+
+async def test_session_header_wins(gateway):
+    client, config, _ = gateway
+    await client.post("/v1/chat/completions",
+                      json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+                      headers={"X-Euthyna-Session": "sess-A"})
+    assert ledger_rows(config)[0]["session"] == "sess-A"
+
+
+async def test_unknown_model_records_usage_without_cost(backend, tmp_path, registries):
+    config = make_config(backend, tmp_path)
+    config.profile.accountant_model = None  # no registration → no cost basis
+    client = TestClient(TestServer(create_app(config)))
+    await client.start_server()
+    try:
+        await client.post("/v1/chat/completions", json={
+            "model": "test-model", "messages": [{"role": "user", "content": "x"}]})
+        (row,) = ledger_rows(config)
+        assert row["usage"]["prompt_tokens"] == 100  # usage recorded regardless
+        assert row["cost"] is None
+        assert row["cost_error"]  # reason on record, nothing fabricated
+    finally:
+        await client.close()
+
+
+async def test_auth_headers_pass_through(gateway):
+    client, _, seen = gateway
+    await client.post("/v1/chat/completions",
+                      json={"model": "m", "messages": []},
+                      headers={"Authorization": "Bearer sk-test",
+                               "anthropic-beta": "oauth-2025"})
+    headers = seen[-1]["headers"]
+    assert headers["Authorization"] == "Bearer sk-test"
+    assert headers["anthropic-beta"] == "oauth-2025"
+
+
+async def test_untapped_get_passthrough(gateway):
+    client, config, _ = gateway
+    resp = await client.get("/v1/models")
+    assert resp.status == 200
+    assert (await resp.json())["data"][0]["id"] == "test-model"
+    assert ledger_rows(config) == []  # not a tapped path
+
+
+async def test_healthz_and_stats(gateway):
+    client, config, _ = gateway
+    assert (await (await client.get("/healthz")).json())["ok"] is True
+    await client.post("/v1/chat/completions", json={
+        "model": "test-model", "messages": [{"role": "user", "content": "hello"}]})
+    stats = await (await client.get("/euthyna/stats")).json()
+    assert stats["calls"] == 1
+    assert stats["prompt_tokens"] == 100
+    assert stats["sessions"] == 1
