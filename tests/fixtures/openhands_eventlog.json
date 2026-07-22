@@ -1,0 +1,51 @@
+{
+  "metadata": {
+    "task_id": "django__django-12858",
+    "exit_status": "submitted",
+    "submission": "diff --git a/foo.py b/foo.py\\n@@ -1 +1 @@\\n-old\\n+new\\n",
+    "usage": {
+      "prompt_tokens": 12000,
+      "completion_tokens": 3000
+    }
+  },
+  "events": [
+    {
+      "action": "message",
+      "source": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "action": "message",
+      "source": "user",
+      "content": "Fix the bug in foo.py"
+    },
+    {
+      "action": "run",
+      "source": "agent",
+      "content": "ls -la",
+      "args": {
+        "command": "ls -la"
+      }
+    },
+    {
+      "observation": "run",
+      "source": "user",
+      "content": "OBSERVATION:\\ntotal 8\\nfoo.py"
+    },
+    {
+      "action": "edit",
+      "source": "agent",
+      "content": "edit foo.py"
+    },
+    {
+      "observation": "edit",
+      "source": "user",
+      "content": "OBSERVATION:\\nfile edited"
+    },
+    {
+      "action": "finish",
+      "source": "agent",
+      "content": "submitting patch"
+    }
+  ]
+}

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arcp — Agent-Runtime Control Plane · Architecture v0.3 (draft)</title>
+<style>
+  :root { color-scheme: light dark; }
+  .viz-root {
+    color-scheme: light;
+    --page:      #f9f9f7;
+    --surface:   #fcfcfb;
+    --ink:       #0b0b0b;
+    --ink2:      #52514e;
+    --muted:     #898781;
+    --hair:      #e1e0d9;
+    --border:    rgba(11,11,11,0.10);
+    --cp:        #2a78d6;  /* control plane accent (blue) */
+    --cp-tint:   rgba(42,120,214,0.06);
+    --waist:     #4a3aa7;  /* protocol accent (violet) */
+    --waist-tint:rgba(74,58,167,0.07);
+    --dp:        #1baf7a;  /* data plane accent (aqua) */
+    --dp-tint:   rgba(27,175,122,0.055);
+    --sb:        #eb6834;  /* Serving B accent (orange) */
+    --sb-tint:   rgba(235,104,52,0.08);
+    --good:      #0ca30c;
+    --warn:      #b97900;
+    --crit:      #d03b3b;
+    --neutral-tint: rgba(11,11,11,0.035);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --page:      #0d0d0d;
+      --surface:   #1a1a19;
+      --ink:       #ffffff;
+      --ink2:      #c3c2b7;
+      --muted:     #898781;
+      --hair:      #2c2c2a;
+      --border:    rgba(255,255,255,0.10);
+      --cp:        #3987e5;
+      --cp-tint:   rgba(57,135,229,0.10);
+      --waist:     #9085e9;
+      --waist-tint:rgba(144,133,233,0.10);
+      --dp:        #199e70;
+      --dp-tint:   rgba(25,158,112,0.10);
+      --sb:        #d95926;
+      --sb-tint:   rgba(217,89,38,0.12);
+      --good:      #0ca30c;
+      --warn:      #fab219;
+      --crit:      #e66767;
+      --neutral-tint: rgba(255,255,255,0.05);
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --page:      #0d0d0d;
+    --surface:   #1a1a19;
+    --ink:       #ffffff;
+    --ink2:      #c3c2b7;
+    --muted:     #898781;
+    --hair:      #2c2c2a;
+    --border:    rgba(255,255,255,0.10);
+    --cp:        #3987e5;
+    --cp-tint:   rgba(57,135,229,0.10);
+    --waist:     #9085e9;
+    --waist-tint:rgba(144,133,233,0.10);
+    --dp:        #199e70;
+    --dp-tint:   rgba(25,158,112,0.10);
+    --sb:        #d95926;
+    --sb-tint:   rgba(217,89,38,0.12);
+    --good:      #0ca30c;
+    --warn:      #fab219;
+    --crit:      #e66767;
+    --neutral-tint: rgba(255,255,255,0.05);
+  }
+
+  html, body { margin:0; padding:0; background: var(--page); }
+  .viz-root {
+    background: var(--page);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 20px 16px 28px;
+    min-height: 100vh;
+    box-sizing: border-box;
+  }
+  .frame { max-width: 1480px; margin: 0 auto; }
+  .topbar { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding: 2px 6px 12px; }
+  .title { color: var(--ink); font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  .subtitle { color: var(--ink2); font-size: 12.5px; margin-top: 3px; }
+  .toggle {
+    font: 500 11.5px system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink2); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 5px 10px; cursor: pointer; white-space: nowrap;
+  }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+  .panel      { fill: var(--surface); stroke: var(--border); rx: 10; }
+  .cp-box     { fill: var(--cp-tint);    stroke: var(--cp);    stroke-width: 1.4; }
+  .waist-box  { fill: var(--waist-tint); stroke: var(--waist); stroke-width: 1.4; }
+  .dp-box     { fill: var(--dp-tint);    stroke: var(--dp);    stroke-width: 1.4; }
+  .sb-box     { fill: var(--sb-tint);    stroke: var(--sb);    stroke-width: 1.4; }
+  .sub-box    { fill: var(--surface); stroke: var(--border); }
+  .neutral-box{ fill: var(--neutral-tint); stroke: var(--border); }
+  .hairline   { stroke: var(--hair); stroke-width: 1; }
+  .guide      { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; fill: none; opacity: .75; }
+  .flow       { stroke: var(--ink2); stroke-width: 1.3; fill: none; }
+  .flow-dash  { stroke: var(--ink2); stroke-width: 1.2; fill: none; stroke-dasharray: 4 4; }
+
+  .h1   { fill: var(--ink);  font-size: 13.5px; font-weight: 700; letter-spacing: .02em; }
+  .h2   { fill: var(--ink);  font-size: 12px;   font-weight: 650; }
+  .h2c  { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; }
+  .body { fill: var(--ink2); font-size: 11px; }
+  .body-s { fill: var(--ink2); font-size: 10.2px; }
+  .mut  { fill: var(--muted); font-size: 10px; }
+  .mut-i{ fill: var(--muted); font-size: 10px; font-style: italic; }
+  .tag  { font-size: 9.5px; font-weight: 650; letter-spacing: .05em; }
+  .cp-ink    { fill: var(--cp); }
+  .waist-ink { fill: var(--waist); }
+  .dp-ink    { fill: var(--dp); }
+  .sb-ink    { fill: var(--sb); }
+  .good-ink  { fill: var(--good); font-weight: 650; }
+  .warn-ink  { fill: var(--warn); font-weight: 650; }
+  .crit-ink  { fill: var(--crit); font-weight: 650; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10.3px; }
+</style>
+</head>
+<body>
+<div class="viz-root" id="root">
+  <div class="frame">
+    <div class="topbar">
+      <div>
+        <div class="title">arcp — Agent-Runtime Control Plane</div>
+        <div class="subtitle">Architecture v0.3 (draft for maintainer review) · hourglass: one protocol waist, everything host-specific below it, everything that grows above it · three integration rings</div>
+      </div>
+      <button class="toggle" id="themeToggle">Toggle light / dark</button>
+    </div>
+
+    <svg viewBox="0 0 1480 1052" role="img" aria-label="arcp architecture diagram: control plane above a narrow protocol waist, data plane with three integration rings below, agent runtimes and model backends at the bottom, side panels for actuators, the 1B model ladder, product loops, and design invariants.">
+
+      <!-- ============ LEFT COLUMN : THE HOURGLASS ============ -->
+
+      <!-- CONTROL PLANE -->
+      <rect class="cp-box" x="28" y="16" width="850" height="268" rx="12"/>
+      <text x="48" y="42" class="h1 cp-ink">CONTROL PLANE</text>
+      <text x="196" y="42" class="body">arcpd — host-independent local daemon · decides, never executes</text>
+      <text x="854" y="42" class="tag cp-ink" text-anchor="end">GROWS FOREVER, BEHIND THE WAIST</text>
+
+      <!-- northbound strip -->
+      <rect class="sub-box" x="48" y="54" width="806" height="26" rx="6"/>
+      <text x="60" y="71" class="mut">NORTHBOUND</text>
+      <text x="145" y="71" class="body">CLI (probe · calibrate · diagnose · report · doctor) · host UI panels · exports</text>
+
+      <!-- Perception -->
+      <rect class="sub-box" x="48" y="92" width="256" height="178" rx="8"/>
+      <text x="62" y="112" class="h2 cp-ink">PERCEPTION</text>
+      <text x="62" y="131" class="body">trace ingestion (from taps)</text>
+      <text x="62" y="147" class="body">feature extractors (pluggable)</text>
+      <rect class="sb-box" x="60" y="158" width="232" height="100" rx="7"/>
+      <text x="72" y="176" class="h2 sb-ink">SERVING-B SLOT · 1B model</text>
+      <text x="72" y="193" class="body-s">reads traces, never load-bearing</text>
+      <text x="72" y="210" class="body-s"><tspan class="good-ink">NOW</tspan>  annotate · non-convergence · waste</text>
+      <text x="72" y="226" class="body-s"><tspan class="warn-ink">GATED</tspan>  task-level config recommendation</text>
+      <text x="72" y="242" class="body-s"><tspan class="crit-ink">NEVER*</tspan>  in-flight action selection</text>
+      <text x="72" y="254" class="mut-i" font-size="8.5">*until re-litigated with preregistered evidence</text>
+
+      <!-- Policy -->
+      <rect class="sub-box" x="320" y="92" width="256" height="178" rx="8"/>
+      <text x="334" y="112" class="h2 cp-ink">POLICY</text>
+      <text x="334" y="131" class="body">actuator registry — 9-axis namespace</text>
+      <text x="334" y="147" class="body-s mono">experimental → admitted → rejected</text>
+      <text x="334" y="166" class="body">policy engine (rules today;</text>
+      <text x="334" y="181" class="body">learned policies enter via the</text>
+      <text x="334" y="196" class="body">same gate)</text>
+      <text x="334" y="219" class="body">evidence gates: every default</text>
+      <text x="334" y="234" class="body">traces to a tiered claim</text>
+      <text x="334" y="256" class="mut">admission = prereg + read-out</text>
+
+      <!-- State -->
+      <rect class="sub-box" x="592" y="92" width="262" height="178" rx="8"/>
+      <text x="606" y="112" class="h2 cp-ink">STATE</text>
+      <text x="606" y="131" class="body">task-total ledger (native cache</text>
+      <text x="606" y="146" class="body">categories · observed vs imputed)</text>
+      <text x="606" y="165" class="body">trajectory archive (superset-over-</text>
+      <text x="606" y="180" class="body">time; host deletions recoverable)</text>
+      <text x="606" y="199" class="body">backend profiles (probed, hashed)</text>
+      <text x="606" y="218" class="body">calibration read-outs + A/A floors</text>
+      <text x="606" y="240" class="mut">append-only, versioned, replayable</text>
+
+      <!-- hourglass converging guides -->
+      <path class="guide" d="M 300 284 L 560 316"/>
+      <path class="guide" d="M 606 284 L 346 316"/>
+
+      <!-- WAIST -->
+      <rect class="waist-box" x="336" y="316" width="234" height="86" rx="10"/>
+      <text x="453" y="338" class="h2 h2c waist-ink" text-anchor="middle">THE NARROW WAIST</text>
+      <text x="453" y="355" class="h2 waist-ink" text-anchor="middle">Control Protocol (name TBD)</text>
+      <text x="453" y="373" class="body-s" text-anchor="middle">directives ▼ · events ▲ · capability-negotiated</text>
+      <text x="453" y="389" class="body-s" text-anchor="middle">versioned · public spec + conformance suite</text>
+
+      <text x="326" y="352" class="mut" text-anchor="end">config.apply · run.rerun</text>
+      <text x="326" y="366" class="mut" text-anchor="end">run.abort · model.switch</text>
+      <text x="580" y="352" class="mut">task lifecycle · compaction</text>
+      <text x="580" y="366" class="mut">capability.announce</text>
+
+      <path class="guide" d="M 346 402 L 300 434"/>
+      <path class="guide" d="M 560 402 L 606 434"/>
+
+      <!-- DATA PLANE -->
+      <rect class="dp-box" x="28" y="434" width="850" height="298" rx="12"/>
+      <text x="48" y="460" class="h1 dp-ink">DATA PLANE</text>
+      <text x="168" y="460" class="body">executes, never decides · fail-open: any failure degrades to a transparent pipe</text>
+      <text x="854" y="460" class="tag dp-ink" text-anchor="end">HOST-SPECIFIC LIVES HERE</text>
+
+      <!-- Ring 0 -->
+      <rect class="sub-box" x="48" y="474" width="806" height="80" rx="8"/>
+      <text x="62" y="494" class="h2 dp-ink">RING 0 · WIRE TAP</text>
+      <text x="216" y="494" class="mut-i">universal — one baseURL change, zero host cooperation. The wedge.</text>
+      <text x="62" y="513" class="body">read-only codecs: /v1/chat/completions + /v1/messages (parse, never translate) · SSE + tool-calls byte-faithful</text>
+      <text x="62" y="529" class="body">observation → ledger + trace + byte-level prefix/cache-geometry watchdog</text>
+      <text x="62" y="545" class="body">Class S semantic-invariant services: canonicalize · cache-doctor · redact · infra-retry/failover · budget-enforce · <tspan class="h2">actuator A2</tspan></text>
+
+      <!-- Ring 1 -->
+      <rect class="sub-box" x="48" y="564" width="806" height="72" rx="8"/>
+      <text x="62" y="584" class="h2 dp-ink">RING 1 · PROTOCOL ADAPTERS</text>
+      <text x="278" y="584" class="mut-i">one thin client per host — N+M, not N×M. The LSP playbook.</text>
+      <text x="62" y="603" class="body">openCode plugin first (session/task ids · host events · config-completeness check · panels)</text>
+      <text x="62" y="619" class="body">task-level <tspan class="h2">actuators A1 · A3 · A4</tspan> — available exactly as far as the host grants capabilities; degrade to advisory, never force</text>
+
+      <!-- Ring 2 -->
+      <rect class="sub-box" x="48" y="646" width="806" height="72" rx="8"/>
+      <text x="62" y="666" class="h2 dp-ink">RING 2 · HARNESS EXECUTORS</text>
+      <text x="272" y="666" class="mut-i">arcp owns the task loop — sovereignty; never blocked by host goodwill.</text>
+      <text x="62" y="685" class="body">drives headless agents as interchangeable executors (opencode run · SWE-agent · OpenHands)</text>
+      <text x="62" y="701" class="body">powers calibrate (K reps) · experiment (randomization + A/A shams) · CI batch — <tspan class="h2">full actuator set</tspan></text>
+
+      <!-- BOTTOM ROW: hosts + backends -->
+      <rect class="neutral-box" x="28" y="762" width="414" height="112" rx="10"/>
+      <text x="48" y="786" class="h2">AGENT RUNTIMES (hosts)</text>
+      <text x="48" y="806" class="body">openCode (first target) · aider · Claude Code</text>
+      <text x="48" y="822" class="body">OpenHands · SWE-agent · anything OpenAI/</text>
+      <text x="48" y="838" class="body">Anthropic-dialect</text>
+      <text x="48" y="860" class="mut">own the interactive loop in sidecar mode</text>
+
+      <rect class="neutral-box" x="464" y="762" width="414" height="112" rx="10"/>
+      <text x="484" y="786" class="h2">MODEL BACKENDS (Serving A — model under test)</text>
+      <text x="484" y="806" class="body">local vLLM / vllm-metal 7B–8B dev setup — in-band usage</text>
+      <text x="484" y="822" class="body">+ /metrics ground truth (calibrates the client-side estimator)</text>
+      <text x="484" y="838" class="body">frontier APIs (OpenAI-, Anthropic-dialect) · aggregators</text>
+      <text x="484" y="854" class="body">(OpenRouter = just another probed profile)</text>
+      <text x="856" y="871" class="tag" text-anchor="end" fill="var(--muted)">OBSERVABILITY MEASURED BY `arcp probe`, NEVER ASSUMED</text>
+
+      <!-- flows between hosts/backends and data plane -->
+      <path class="flow" d="M 110 762 L 110 732" marker-end="url(#arr)"/>
+      <text x="122" y="746" class="mut">LLM traffic (baseURL)</text>
+      <path class="flow" d="M 700 732 L 700 762" marker-end="url(#arr)"/>
+      <text x="712" y="746" class="mut">forwarded byte-faithfully</text>
+      <path class="flow-dash" d="M 330 762 L 330 732" marker-end="url(#arr)"/>
+      <text x="196" y="758" class="mut">control protocol (Ring 1)</text>
+      <path class="flow-dash" d="M 430 732 L 430 762" marker-end="url(#arr)"/>
+      <text x="442" y="746" class="mut">launches headless (Ring 2)</text>
+
+      <!-- Serving B side note, docked to control plane -->
+      <path class="flow-dash" d="M 176 284 L 176 320"/>
+      <text x="48" y="338" class="mut sb-ink">Serving B: separate process/port · KV isolated from Serving A</text>
+      <text x="48" y="352" class="mut sb-ink">recalibrated per target model</text>
+
+      <!-- ============ RIGHT COLUMN : PANELS ============ -->
+
+      <!-- Actuators panel -->
+      <rect class="panel" x="898" y="16" width="558" height="268" rx="10"/>
+      <text x="918" y="42" class="h1">THE FOUR ACTUATORS</text>
+      <text x="1100" y="42" class="mut-i">closed launch set — registry-governed, grows by admission</text>
+      <line class="hairline" x1="918" y1="54" x2="1436" y2="54"/>
+
+      <text x="918" y="76" class="h2">A1 · WHO</text>
+      <text x="1010" y="76" class="body">model / tier selection</text>
+      <text x="1230" y="76" class="mut">home: orchestrator</text>
+      <text x="1436" y="76" class="tag" text-anchor="end" fill="var(--ink2)">DESCRIPTIVE</text>
+
+      <text x="918" y="99" class="h2">A2 · HOW HARD</text>
+      <text x="1030" y="99" class="body">reasoning effort / thinking budget</text>
+      <text x="1230" y="99" class="mut">home: wire</text>
+      <text x="1436" y="99" class="tag" text-anchor="end" fill="var(--ink2)">DESCRIPTIVE</text>
+
+      <text x="918" y="122" class="h2">A3 · HOW MANY</text>
+      <text x="1030" y="122" class="body">memoryless retry · escalate</text>
+      <text x="1230" y="122" class="mut">home: orchestrator</text>
+      <text x="1436" y="122" class="tag" text-anchor="end" fill="var(--ink2)">DESCRIPTIVE†</text>
+
+      <text x="918" y="145" class="h2">A4 · HOW LONG</text>
+      <text x="1030" y="145" class="body">horizon — stop / call admission</text>
+      <text x="1230" y="145" class="mut">home: orchestrator</text>
+      <text x="1436" y="145" class="tag" text-anchor="end" fill="var(--ink2)">MECHANISM-ONLY</text>
+
+      <text x="918" y="164" class="mut-i">† prospectively dominated (+2.3pp for +20.8% cost) — ships as mechanism, never as default</text>
+
+      <line class="hairline" x1="918" y1="178" x2="1436" y2="178"/>
+      <text x="918" y="198" class="h2 warn-ink">GATED SEATS</text>
+      <text x="1030" y="198" class="body">context admission-cap (preregistered, awaiting read-out)</text>
+      <text x="1030" y="214" class="body">task-config recommender (predictability gate)</text>
+      <text x="918" y="238" class="h2 crit-ink">REJECTED</text>
+      <text x="1030" y="238" class="body">in-flight content restructuring (pruning/masking/memory rewrite)</text>
+      <text x="1030" y="254" class="body">trace-conditioned live steering</text>
+      <text x="918" y="272" class="mut-i">reviving a rejected item requires a new preregistration + read-out — a governance rule, not a doc note</text>
+
+      <!-- Product loops panel -->
+      <rect class="panel" x="898" y="300" width="558" height="196" rx="10"/>
+      <text x="918" y="326" class="h1">PRODUCT LOOPS</text>
+      <text x="1080" y="326" class="mut-i">value lands in this order</text>
+      <line class="hairline" x1="918" y1="338" x2="1436" y2="338"/>
+
+      <text x="918" y="360" class="h2 dp-ink">METER</text>
+      <text x="1010" y="360" class="body">always-on task-total dollars · cache categories · retries included</text>
+      <text x="918" y="384" class="h2 dp-ink">DOCTOR</text>
+      <text x="1010" y="384" class="body">Class S fixes: cache busting · breakpoints · secret egress · runaway spend</text>
+      <text x="918" y="408" class="h2 dp-ink">DECIDE</text>
+      <text x="1010" y="408" class="body">calibrate: static configs × K reps on your acceptance suite → cost-to-band</text>
+      <text x="1010" y="424" class="body">frontier on resolve lower-CI → lock one config · A/A floor under every number</text>
+      <text x="918" y="448" class="h2 dp-ink">EXPERIMENT</text>
+      <text x="1010" y="448" class="body">consented randomization (A/A shams, sequential stopping) — the interventional-</text>
+      <text x="1010" y="464" class="body">data flywheel that trains and validates Serving B's gated tiers</text>
+      <text x="918" y="484" class="mut-i">meter/doctor/decide run with zero models installed — the 1B is additive, never a dependency</text>
+
+      <!-- Invariants panel -->
+      <rect class="panel" x="898" y="512" width="558" height="220" rx="10"/>
+      <text x="918" y="538" class="h1">DESIGN INVARIANTS</text>
+      <line class="hairline" x1="918" y1="550" x2="1436" y2="550"/>
+      <text x="918" y="572" class="body"><tspan class="h2">1 · Semantic-invariant by default</tspan> — out of the box, nothing the model sees is altered</text>
+      <text x="918" y="596" class="body"><tspan class="h2">2 · Interventions by evidence</tspan> — every claim carries a tier: Confirmed · Offline-validated ·</text>
+      <text x="932" y="612" class="body">Descriptive · Mechanism-only; A/A floor is a CI merge rule for any improvement claim</text>
+      <text x="918" y="636" class="body"><tspan class="h2">3 · Experimentation by consent</tspan> — randomization is opt-in, per-workspace, revocable</text>
+      <text x="918" y="660" class="body"><tspan class="h2">4 · Fail-open</tspan> — the tap may go blind; it never blocks the agent</text>
+      <text x="918" y="684" class="body"><tspan class="h2">5 · Local-only</tspan> — metadata-only capture by default, full bodies opt-in, no phone home, ever</text>
+      <text x="918" y="708" class="body"><tspan class="h2">6 · Single-writer, hash-logged</tspan> — one mutation stage max; before/after hashes on each change</text>
+
+      <!-- Strategy strip -->
+      <rect class="panel" x="898" y="748" width="558" height="126" rx="10"/>
+      <text x="918" y="774" class="h1">INTEGRATION STRATEGY</text>
+      <text x="1112" y="774" class="mut-i">how one plane influences every orchestrator</text>
+      <line class="hairline" x1="918" y1="786" x2="1436" y2="786"/>
+      <text x="918" y="808" class="body"><tspan class="h2">Ring 0 → data gravity.</tspan> Ledger + diagnosis everywhere today; users demand host hooks.</text>
+      <text x="918" y="830" class="body"><tspan class="h2">Ring 1 → standardization.</tspan> Open spec + conformance suite (free QA for hosts) + upstream</text>
+      <text x="932" y="846" class="body">PRs armed with Ring-0 evidence: “this compaction costs your users +X%.”</text>
+      <text x="918" y="866" class="body"><tspan class="h2">Ring 2 → sovereignty.</tspan> calibrate/experiment own their loop — never waiting on hosts.</text>
+
+      <!-- footer -->
+      <line class="hairline" x1="28" y1="900" x2="1456" y2="900"/>
+      <text x="28" y="924" class="mut">Lineage: distilled from the agent-runtime research program — cache-tax falsification · effort-frontier (inverted-U, medium Pareto-dominates high/xhigh) · retry prospectively dominated ·</text>
+      <text x="28" y="940" class="mut">trace→action selection rejected (AUROC 0.451; moderator null p=0.734) · trace→diagnosis validated (non-convergence AUROC 0.62/0.70/0.83 @ 5/10/20 events) · no universal config ⇒ calibration.</text>
+      <text x="28" y="962" class="mut">Two operating modes: SIDECAR (host owns the loop — Rings 0+1) and HARNESS (arcp owns the loop — Ring 2). The 1B Serving-B model perceives now, recommends only after its gate, never steers in-flight.</text>
+      <text x="28" y="990" class="mut-i">Draft for maintainer review — protocol name, gateway implementation base, Class-S default posture, license, and evidence-pack scope are open decisions (ARCHITECTURE.md §13).</text>
+
+      <defs>
+        <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0.5 0.5 L 7.5 4 L 0.5 7.5 z" fill="var(--ink2)" stroke="none"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    btn.addEventListener('click', function () {
+      var r = document.documentElement;
+      var cur = r.getAttribute('data-theme');
+      if (cur === 'dark') { r.setAttribute('data-theme', 'light'); }
+      else if (cur === 'light') { r.setAttribute('data-theme', 'dark'); }
+      else {
+        var osDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        r.setAttribute('data-theme', osDark ? 'light' : 'dark');
+      }
+    });
+  })();
+</script>
+</body>
+</html>

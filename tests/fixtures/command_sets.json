@@ -1,0 +1,21 @@
+{
+  "django__django-12858": {
+    "D2": {
+      "cmd": "python -m pytest -q tests/foo.py",
+      "kind": "targeted_test",
+      "credible": true
+    }
+  },
+  "matplotlib__matplotlib-26291": {
+    "D2": {
+      "cmd": "python repro.py",
+      "kind": "repro_script",
+      "credible": true
+    }
+  },
+  "django__django-11820": {
+    "D2": {
+      "credible": false
+    }
+  }
+}

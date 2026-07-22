@@ -1,0 +1,73 @@
+{
+  "task_id": "django__django-12858",
+  "history": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant."
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Fix the bug in foo.py"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "ls -la"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "text",
+          "text": "OBSERVATION:\\ntotal 8\\nfoo.py"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "edit foo.py"
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": [
+        {
+          "type": "text",
+          "text": "OBSERVATION:\\nfile edited"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "submitting patch"
+        }
+      ]
+    }
+  ],
+  "info": {
+    "exit_status": "submitted",
+    "submission": "diff --git a/foo.py b/foo.py\\n@@ -1 +1 @@\\n-old\\n+new\\n",
+    "model_stats": {
+      "tokens_sent": 12000,
+      "tokens_received": 3000,
+      "api_calls": 3,
+      "instance_cost": 0.05
+    }
+  }
+}

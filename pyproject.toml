@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "euthyna"
+dynamic = ["version"]
+description = "Euthyna — agent-runtime control plane: a local bump-in-the-wire gateway that meters task-total LLM cost with native cache categories, diagnoses agent behavior from traces, and intervenes only with evidence. Nothing in excess; know thyself."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+keywords = ["agent", "control-plane", "llm", "cost", "observability", "opencode", "vllm"]
+dependencies = ["PyYAML>=5.4", "aiohttp>=3.9"]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+euthyna = "euthyna.cli.main:main"
+
+[tool.setuptools]
+packages = ["euthyna", "euthyna.core", "euthyna.core.adapters", "euthyna.gateway", "euthyna.cli"]
+
+[tool.setuptools.dynamic]
+version = { attr = "euthyna.version.__version__" }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
