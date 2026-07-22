@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import re
 import urllib.request
 from pathlib import Path
 
@@ -47,7 +48,7 @@ def _serving_b(base_url: str, text: str) -> tuple[str, str]:
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": text}],
-        "max_tokens": 900,
+        "max_tokens": 2000,
         "temperature": 0,
     }
     req = urllib.request.Request(
@@ -55,8 +56,11 @@ def _serving_b(base_url: str, text: str) -> tuple[str, str]:
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    body = json.loads(urllib.request.urlopen(req, timeout=300).read())
-    return body["choices"][0]["message"]["content"], model
+    body = json.loads(urllib.request.urlopen(req, timeout=600).read())
+    content = body["choices"][0]["message"]["content"] or ""
+    # Thinking-style models may prepend a chain-of-thought block; keep the answer only.
+    content = re.sub(r"<think>.*?(</think>|\Z)", "", content, flags=re.S).strip()
+    return content, model
 
 
 def _trace_shapes(sessions: dict, date: str) -> dict:
