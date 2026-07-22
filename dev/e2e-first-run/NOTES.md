@@ -14,6 +14,6 @@ Pipeline: opencode 1.18.4 (zero fork: custom provider + chat.headers plugin)
   shows as 96 calls at ratio 0.004 — the watchdog caught the thrash in real data.
 - cached_tokens: NOT surfaced by this vllm-metal build (probe + all ledger rows agree;
   prompt_tokens_details is null). Recorded observed=false, never fabricated. APC is
-  active (probe latency: first 12.5s vs second 1.3s on identical prefix).
+  active (probe latency: first 13.4s vs second 0.15s on identical prefix).
 - Known wrinkle: opencode context limit must be set in opencode.json (limit.context)
   to match --max-model-len, or the loop 400s at the boundary (8192+1536=8193 > 8192).

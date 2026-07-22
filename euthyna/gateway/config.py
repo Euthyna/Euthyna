@@ -46,14 +46,19 @@ class Profile:
     def register(self) -> None:
         """Publish this profile's cache schema + prices into the accountant registries.
 
-        Only what the profile explicitly provides is registered — a profile that names
-        a model already known to the accountant (e.g. a built-in) never silently
-        overwrites it with defaults. A model missing from the registries simply yields
-        a cost_error in the ledger; usage is still recorded.
+        Only what the profile explicitly provides is registered, and never over an
+        existing entry: a profile may *reference* a built-in model by name (providing
+        nothing), or *define* a new one, but silently overwriting is an error. Price
+        keys are required when given — an incomplete sheet fails loudly at startup
+        rather than producing fabricated $0 cost rows.
         """
         if not (self.accountant_model and self.price_date):
             return
         if "cache_schema" in self.raw:
+            if self.accountant_model in accountant.PROVIDER_CACHE_SCHEMAS:
+                raise ValueError(
+                    f"profile {self.name!r}: cache schema for {self.accountant_model!r} "
+                    "already registered — pick a different accountant_model name")
             schema = {}
             for cat in USAGE_CATEGORIES:
                 spec = self.raw["cache_schema"].get(cat) or {}
@@ -64,11 +69,16 @@ class Profile:
                 }
             accountant.PROVIDER_CACHE_SCHEMAS[self.accountant_model] = schema
         if "prices_per_1m" in self.raw:
+            sheet = accountant.PRICE_SHEET.setdefault(self.price_date, {})
+            if self.accountant_model in sheet:
+                raise ValueError(
+                    f"profile {self.name!r}: {self.accountant_model!r} already priced "
+                    f"on sheet {self.price_date} — pick a different name or date")
             prices = self.raw["prices_per_1m"]
-            accountant.PRICE_SHEET.setdefault(self.price_date, {})[self.accountant_model] = {
-                "input_per_1m": prices.get("input", 0.0),
-                "cached_input_per_1m": prices.get("cached_input", 0.0),
-                "output_per_1m": prices.get("output", 0.0),
+            sheet[self.accountant_model] = {
+                "input_per_1m": prices["input"],
+                "cached_input_per_1m": prices["cached_input"],
+                "output_per_1m": prices["output"],
                 "cache_creation_per_1m": prices.get("cache_creation"),
                 "notes": f"registered from profile {self.name!r}",
             }
@@ -83,7 +93,6 @@ class GatewayConfig:
     port: int = DEFAULT_PORT
     home: Path = field(default_factory=lambda: Path(os.environ.get("EUTHYNA_HOME", "~/.euthyna")).expanduser())
     transparent: bool = field(default_factory=lambda: os.environ.get("EUTHYNA_TRANSPARENT") == "1")
-    inject_usage: bool = True  # the one sanctioned request mutation, always flagged in the ledger
 
     @property
     def ledger_dir(self) -> Path:
@@ -95,7 +104,7 @@ class GatewayConfig:
 
     def profile_for(self, dialect: str) -> Optional[Profile]:
         if dialect == "anthropic":
-            return self.anthropic_profile or self.profile
+            return self.anthropic_profile  # unconfigured → explicit 502, not silent fallback
         return self.profile
 
     def register_profiles(self) -> None:

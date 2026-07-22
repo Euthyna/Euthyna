@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -59,6 +60,8 @@ def measure_cache_schema(first_usage: dict, second_usage: dict) -> dict:
 
 def probe(base_url: str, name: str, out_dir: str = "profiles") -> Path:
     base_url = base_url.rstrip("/")
+    if base_url.endswith("/v1"):  # accept both forms; paths below append /v1/...
+        base_url = base_url[:-3].rstrip("/")
     models = _get_json(f"{base_url}/v1/models")
     model = models["data"][0]["id"]
 
@@ -105,7 +108,11 @@ def probe(base_url: str, name: str, out_dir: str = "profiles") -> Path:
 
 
 def run(args) -> int:
-    out = probe(args.base_url, args.name, args.out)
+    try:
+        out = probe(args.base_url, args.name, args.out)
+    except (urllib.error.URLError, OSError) as exc:
+        print(f"probe: backend unreachable at {args.base_url} ({exc}) — is it running?")
+        return 1
     profile = yaml.safe_load(out.read_text())
     cached = profile["cache_schema"]["cached_tokens"]
     print(f"probe: wrote {out}")

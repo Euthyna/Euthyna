@@ -21,6 +21,7 @@ office. Nothing in excess; know thyself.*
 ```bash
 git clone <this-repo> && cd euthyna
 uv venv && uv pip install -e ".[test]"        # or: pip install -e ".[test]"
+source .venv/bin/activate
 
 euthyna probe --base-url http://127.0.0.1:8000 --name my-backend  # measures, writes profiles/my-backend.yaml
 euthyna up --profile profiles/my-backend.yaml                     # gateway on :4517
@@ -54,6 +55,7 @@ agent (opencode, …)
   provider usage, cost row with observed/imputed flags, prefix-stability ratio.
 - **Traces** — metadata only (`~/.euthyna/traces/<session>.jsonl`): hashes, sizes,
   roles. Message content is never stored. Nothing ever leaves your machine.
+  All state lives under `~/.euthyna`; override with `EUTHYNA_HOME`.
 - **Profiles** — `euthyna probe` measures what a backend's usage payloads actually
   surface and writes the evidence into `profiles/<name>.yaml`. Nothing is assumed.
 - **Serving-B slot** — `euthyna analyze` feeds the day's *metadata* to a small local

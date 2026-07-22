@@ -6,7 +6,6 @@ traces, and profiles. See docs/SETUP.md for the end-to-end walkthrough.
 from __future__ import annotations
 
 import argparse
-import datetime as _dt
 
 from euthyna.version import __version__
 
@@ -52,11 +51,21 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "up":
         from euthyna.gateway import GatewayConfig, Profile, run as run_gateway
-        config = GatewayConfig(
-            profile=Profile.load(args.profile),
-            anthropic_profile=Profile.load(args.anthropic_profile) if args.anthropic_profile else None,
-            port=args.port,
-        )
+        try:
+            profile = Profile.load(args.profile)
+            anthropic = Profile.load(args.anthropic_profile) if args.anthropic_profile else None
+        except FileNotFoundError:
+            print(f"up: profile {args.profile} not found — run `euthyna probe "
+                  f"--base-url http://127.0.0.1:8000 --name <name>` first")
+            return 1
+        except Exception as exc:
+            print(f"up: could not load profile: {exc}")
+            return 1
+        if profile.dialect != "openai":
+            print(f"up: --profile must be an openai-dialect backend (got {profile.dialect!r}); "
+                  "use --anthropic-profile for the /v1/messages side")
+            return 1
+        config = GatewayConfig(profile=profile, anthropic_profile=anthropic, port=args.port)
         print(f"euthyna up — port {config.port}, backend {config.profile.base_url}, "
               f"home {config.home}{' [TRANSPARENT]' if config.transparent else ''}")
         run_gateway(config)
@@ -66,8 +75,6 @@ def main(argv=None) -> int:
         return probe.run(args)
     if args.command == "report":
         from . import report
-        if args.date is None:
-            args.date = _dt.date.today().isoformat()
         return report.run(args)
     if args.command == "doctor":
         from . import doctor

@@ -17,7 +17,7 @@ import re
 import urllib.request
 from pathlib import Path
 
-from .report import _home, aggregate, load_rows
+from euthyna.ledger import aggregate, home as _home, load_rows
 
 BANNER = "ADVISORY ONLY — Euthyna does not act on any of this automatically."
 

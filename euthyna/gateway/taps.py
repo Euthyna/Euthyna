@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import re
 from collections import OrderedDict
 from typing import Optional
 
@@ -20,6 +21,14 @@ from .config import GatewayConfig
 
 SESSION_HEADER = "X-Euthyna-Session"
 _MAX_SESSIONS = 64
+_SAFE_SESSION = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
+
+def _safe_session(session: str) -> str:
+    """Session ids become filenames; anything unusual is replaced by a hash id."""
+    if _SAFE_SESSION.fullmatch(session):
+        return session
+    return "hdr-" + _sha(session.encode())[:10]
 
 
 def _sha(data: bytes) -> str:
@@ -51,6 +60,10 @@ class PrefixMonitor:
 
     def observe(self, messages, session: Optional[str]) -> tuple[str, Optional[float]]:
         canonical = _canonical(messages)
+        if not messages:
+            # No messages (e.g. /v1/completions uses `prompt`): nothing to chain or
+            # compare. Storing '[]' would make every later call chain onto it.
+            return session or "auto-" + _sha(canonical.encode())[:10], None
         if session is None:
             session = self._chain(canonical)
         prev = self._last.get(session)
@@ -68,7 +81,7 @@ class PrefixMonitor:
 
     def _chain(self, canonical: str) -> str:
         for session, prev in reversed(self._last.items()):
-            if canonical.startswith(prev[:-1]):
+            if len(prev) > 2 and canonical.startswith(prev[:-1]):
                 return session
         return "auto-" + _sha(canonical.encode())[:10]
 
@@ -161,9 +174,12 @@ class Taps:
         session_header: Optional[str],
         injected: bool,
         request_sha: Optional[tuple[str, str]] = None,
+        truncated: bool = False,
     ) -> None:
         request_json = request_json or {}
         messages = request_json.get("messages") or []
+        if session_header is not None:
+            session_header = _safe_session(session_header)
         session, ratio = self.prefix.observe(messages, session_header)
         usage, model = extract_usage(dialect, response_json, response_sse)
         model = model or request_json.get("model")
@@ -196,6 +212,9 @@ class Taps:
             "prefix_stable_ratio": ratio,
             "cost": cost,
             "cost_error": cost_error,
+            # True when the response was not fully observed (buffer cap, disconnect):
+            # the call is still counted, usage may be missing.
+            "tap_truncated": truncated,
         }
         if request_sha is not None:
             row["request_sha_before"], row["request_sha_after"] = request_sha

@@ -1,16 +1,11 @@
 """CLI tests: probe's measurement logic, report aggregation, profile round-trip."""
-import copy
-import json
-
-import pytest
 import yaml
 
 from euthyna.cli.main import build_parser
 from euthyna.cli.probe import measure_cache_schema
-from euthyna.cli.report import aggregate
-from euthyna.core import accountant
 from euthyna.core.accountant import cost_row_from_usage
 from euthyna.gateway import Profile
+from euthyna.ledger import aggregate
 
 
 def test_measure_cache_schema_vllm_style():
@@ -65,14 +60,14 @@ def test_parser_subcommands():
     assert parser.parse_args(["analyze"]).advisor_url == "http://127.0.0.1:8001"
 
 
-@pytest.fixture
-def registries():
-    schemas, sheet = copy.deepcopy(accountant.PROVIDER_CACHE_SCHEMAS), copy.deepcopy(accountant.PRICE_SHEET)
-    yield
-    accountant.PROVIDER_CACHE_SCHEMAS.clear()
-    accountant.PROVIDER_CACHE_SCHEMAS.update(schemas)
-    accountant.PRICE_SHEET.clear()
-    accountant.PRICE_SHEET.update(sheet)
+def test_report_aggregate_anthropic_row_without_cost():
+    rows = [{"session": "a1",
+             "usage": {"input_tokens": 50, "cache_read_input_tokens": 40,
+                       "cache_creation_input_tokens": 10, "output_tokens": 7},
+             "cost": None, "model": "claude-test"}]
+    s = aggregate(rows)["a1"]
+    assert s["prompt_tokens"] == 100  # input + cache read + cache creation
+    assert s["completion_tokens"] == 7
 
 
 def test_probe_profile_round_trip(tmp_path, registries):

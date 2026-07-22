@@ -1,12 +1,11 @@
 """Gateway tests against in-process mock backends (both dialects, stream + non-stream)."""
-import copy
+import gzip
 import json
 
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from euthyna.core import accountant
 from euthyna.gateway import GatewayConfig, Profile, create_app
 
 NONSTREAM_BODY = json.dumps({
@@ -24,6 +23,10 @@ def sse(*events):
 async def openai_chat(request):
     body = await request.json()
     request.app["seen"].append({"headers": dict(request.headers), "body": body})
+    if request.headers.get("X-Test-Gzip"):
+        return web.Response(body=gzip.compress(NONSTREAM_BODY),
+                            content_type="application/json",
+                            headers={"Content-Encoding": "gzip"})
     if body.get("stream"):
         events = [{"model": "test-model", "choices": [{"delta": {"content": "hi"}}]}]
         if (body.get("stream_options") or {}).get("include_usage"):
@@ -46,6 +49,13 @@ async def anthropic_messages(request):
     return web.Response(text=sse(*events), content_type="text/event-stream")
 
 
+async def openai_completions(request):
+    body = await request.json()
+    request.app["seen"].append({"headers": dict(request.headers), "body": body})
+    return web.json_response({"model": "test-model", "choices": [{"text": "ok"}],
+                              "usage": {"prompt_tokens": 5, "completion_tokens": 1}})
+
+
 async def models_list(request):
     return web.json_response({"data": [{"id": "test-model"}]})
 
@@ -55,22 +65,13 @@ async def backend():
     app = web.Application()
     app["seen"] = []
     app.router.add_post("/v1/chat/completions", openai_chat)
+    app.router.add_post("/v1/completions", openai_completions)
     app.router.add_post("/v1/messages", anthropic_messages)
     app.router.add_get("/v1/models", models_list)
     server = TestServer(app)
     await server.start_server()
     yield server
     await server.close()
-
-
-@pytest.fixture
-def registries():
-    schemas, sheet = copy.deepcopy(accountant.PROVIDER_CACHE_SCHEMAS), copy.deepcopy(accountant.PRICE_SHEET)
-    yield
-    accountant.PROVIDER_CACHE_SCHEMAS.clear()
-    accountant.PROVIDER_CACHE_SCHEMAS.update(schemas)
-    accountant.PRICE_SHEET.clear()
-    accountant.PRICE_SHEET.update(sheet)
 
 
 def make_config(backend, tmp_path, **kwargs):
@@ -238,6 +239,59 @@ async def test_untapped_get_passthrough(gateway):
     assert resp.status == 200
     assert (await resp.json())["data"][0]["id"] == "test-model"
     assert ledger_rows(config) == []  # not a tapped path
+
+
+async def test_gzip_relayed_verbatim_and_tap_decompresses(backend, tmp_path, registries):
+    config = make_config(backend, tmp_path)
+    client = TestClient(TestServer(create_app(config)), auto_decompress=False)
+    await client.start_server()
+    try:
+        resp = await client.post("/v1/chat/completions",
+                                 json={"model": "test-model",
+                                       "messages": [{"role": "user", "content": "x"}]},
+                                 headers={"X-Test-Gzip": "1"})
+        raw = await resp.read()
+        assert resp.headers.get("Content-Encoding") == "gzip"
+        assert raw == gzip.compress(NONSTREAM_BODY)  # bytes exactly as backend sent
+        (row,) = ledger_rows(config)
+        assert row["usage"]["prompt_tokens"] == 100  # tap parsed its own decompressed copy
+    finally:
+        await client.close()
+
+
+async def test_completions_calls_do_not_poison_sessions(gateway):
+    client, config, _ = gateway
+    await client.post("/v1/completions", json={"model": "m", "prompt": "hello"})
+    await client.post("/v1/chat/completions", json={
+        "model": "m", "messages": [{"role": "user", "content": "unrelated"}]})
+    row1, row2 = ledger_rows(config)
+    assert row1["usage"]["prompt_tokens"] == 5  # completions call still ledgered
+    assert row1["session"] != row2["session"]  # no chaining onto an empty canonical
+    assert row2["prefix_stable_ratio"] is None  # first call of its own session
+
+
+async def test_session_header_sanitized_for_filenames(gateway):
+    client, config, _ = gateway
+    await client.post("/v1/chat/completions",
+                      json={"model": "m", "messages": [{"role": "user", "content": "x"}]},
+                      headers={"X-Euthyna-Session": "../../../evil"})
+    (row,) = ledger_rows(config)
+    assert row["session"].startswith("hdr-")
+    traces = list(config.traces_dir.glob("*.jsonl"))
+    assert [t.name for t in traces] == [row["session"] + ".jsonl"]  # inside traces dir
+
+
+async def test_oversized_response_still_ledgered(gateway, monkeypatch):
+    import euthyna.gateway.app as app_module
+    monkeypatch.setattr(app_module, "TAP_BUFFER_CAP", 10)
+    client, config, _ = gateway
+    resp = await client.post("/v1/chat/completions", json={
+        "model": "test-model", "messages": [{"role": "user", "content": "hello"}]})
+    assert await resp.read() == NONSTREAM_BODY  # pipe unaffected
+    (row,) = ledger_rows(config)
+    assert row["tap_truncated"] is True
+    assert row["usage"] is None  # unknown, not fabricated
+    assert row["status"] == 200
 
 
 async def test_healthz_and_stats(gateway):

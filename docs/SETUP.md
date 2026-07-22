@@ -25,7 +25,8 @@ opencode ──baseURL──▶ euthyna gateway :4517 ──▶ vllm-metal :8000
 ```bash
 git clone <repo> euthyna && cd euthyna
 uv venv && uv pip install -e ".[test]"     # plain pip works too (Python ≥3.9)
-pytest                                      # 40 tests, mock-backed, no GPU needed
+source .venv/bin/activate
+pytest                                      # 45 tests, mock-backed, no GPU needed
 ```
 
 If you only want to hack on the gateway/CLI, you can stop here — the test suite
@@ -70,8 +71,9 @@ euthyna up --profile profiles/vllm-metal.yaml        # gateway on :4517
 `probe` writes `profiles/vllm-metal.yaml` with **measured** cache observability and a
 $0 local price sheet. On current vllm-metal, `cached_tokens` does **not** surface
 (`prompt_tokens_details: null`) — the profile records `surfaces: false` and the probe's
-latency evidence (12.5 s cold → 1.3 s warm on an identical prefix) shows APC working
-anyway. Euthyna never fabricates what the backend doesn't report.
+latency evidence (13.4 s cold → 0.15 s warm on an identical prefix; see the `probe:`
+block in the committed profile) shows APC working anyway. Euthyna never fabricates
+what the backend doesn't report.
 
 ### 4. opencode — zero fork
 
