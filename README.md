@@ -9,7 +9,7 @@
 Nothing in excess; know thyself.</p>
 
 <p align="center">
-  <a href="https://github.com/cdc542559455/euthyna/actions/workflows/test.yml"><img src="https://github.com/cdc542559455/euthyna/actions/workflows/test.yml/badge.svg" alt="tests"></a>
+  <a href="https://github.com/cdc542559455/Euthyna/actions/workflows/test.yml"><img src="https://github.com/cdc542559455/Euthyna/actions/workflows/test.yml/badge.svg" alt="tests"></a>
   <img src="https://img.shields.io/badge/python-3.9%E2%80%933.14-blue" alt="Python 3.9–3.14">
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
 </p>
@@ -39,7 +39,7 @@ leaving office.*
 Developer smoke test — no GPU, no model, no network:
 
 ```bash
-git clone https://github.com/cdc542559455/euthyna.git && cd euthyna
+git clone https://github.com/cdc542559455/Euthyna.git && cd euthyna
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[test]"
 pytest                    # mock-backed suite

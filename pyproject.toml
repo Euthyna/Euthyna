@@ -26,9 +26,9 @@ classifiers = [
 dependencies = ["PyYAML>=5.4", "aiohttp>=3.9"]
 
 [project.urls]
-Repository = "https://github.com/cdc542559455/euthyna"
-Issues = "https://github.com/cdc542559455/euthyna/issues"
-Changelog = "https://github.com/cdc542559455/euthyna/blob/main/CHANGELOG.md"
+Repository = "https://github.com/cdc542559455/Euthyna"
+Issues = "https://github.com/cdc542559455/Euthyna/issues"
+Changelog = "https://github.com/cdc542559455/Euthyna/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
