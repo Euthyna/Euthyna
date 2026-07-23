@@ -1,11 +1,9 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/euthyna-logo-dark.svg">
-    <img src="docs/brand/euthyna-logo.svg" alt="Euthyna — a flat owl with coin eyes and an hourglass belly" width="150">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/euthyna-logo-wordmark-dark.svg">
+    <img src="docs/brand/euthyna-logo-wordmark.svg" alt="euthyna — a flat owl with coin eyes and an hourglass belly, beside the name" width="440">
   </picture>
 </p>
-
-<h1 align="center">euthyna</h1>
 
 <p align="center"><em>A local audit gateway for AI coding agents.</em><br>
 Nothing in excess; know thyself.</p>
