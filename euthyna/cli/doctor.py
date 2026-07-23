@@ -12,8 +12,6 @@ from pathlib import Path
 
 import yaml
 
-from euthyna.gateway.config import DEFAULT_PORT
-
 
 def _reach(url: str, timeout: float = 5.0, headers: dict = {}):
     req = urllib.request.Request(url, headers=headers)

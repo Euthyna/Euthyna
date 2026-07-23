@@ -21,7 +21,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     up = sub.add_parser("up", help="run the gateway (sidecar data plane)")
     up.add_argument("--profile", default="profiles/vllm-metal.yaml",
-                    help="backend profile YAML (default: %(default)s)")
+                    help="backend profile YAML, relative to the current directory — "
+                         "written by `euthyna probe` (default: %(default)s)")
     up.add_argument("--anthropic-profile", default=None,
                     help="optional profile for the /v1/messages dialect")
     up.add_argument("--port", type=int, default=4517)

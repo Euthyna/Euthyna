@@ -104,7 +104,7 @@ def ledger_rows(config):
     rows = []
     if config.ledger_dir.exists():
         for f in sorted(config.ledger_dir.glob("*.jsonl")):
-            rows += [json.loads(l) for l in f.read_text().splitlines()]
+            rows += [json.loads(line) for line in f.read_text().splitlines()]
     return rows
 
 

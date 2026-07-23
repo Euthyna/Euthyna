@@ -16,18 +16,29 @@ proxy, and answers three questions the agent itself never will:
 *Euthyna (εὔθυνα): the accounting audit every Athenian official underwent on leaving
 office. Nothing in excess; know thyself.*
 
-## Quickstart (60 seconds, any OpenAI-dialect backend)
+## Quickstart
+
+Developer smoke test — no GPU, no model, no network:
 
 ```bash
-git clone <this-repo> && cd euthyna
-uv venv && uv pip install -e ".[test]"        # or: pip install -e ".[test]"
-source .venv/bin/activate
-
-euthyna probe --base-url http://127.0.0.1:8000 --name my-backend  # measures, writes profiles/my-backend.yaml
-euthyna up --profile profiles/my-backend.yaml                     # gateway on :4517
+git clone https://github.com/cdc542559455/euthyna.git && cd euthyna
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[test]"
+pytest                    # mock-backed suite
 ```
 
-Point your agent at `http://127.0.0.1:4517/v1` instead of the backend, run a task, then:
+(`uv venv && uv pip install -e ".[test]"` works too.)
+
+Run the gateway — needs an OpenAI-dialect backend already serving (vLLM,
+vllm-metal, or a cloud endpoint):
+
+```bash
+euthyna probe --base-url http://127.0.0.1:8000 --name my-backend  # measures, writes profiles/my-backend.yaml
+euthyna up --profile profiles/my-backend.yaml                     # gateway on :4517, stays in the foreground
+```
+
+Point your agent at `http://127.0.0.1:4517/v1` instead of the backend, run a task,
+then in another terminal:
 
 ```bash
 euthyna report      # per-session calls, tokens, cache ratio, $, prefix stability

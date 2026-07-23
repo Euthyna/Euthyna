@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Euthyna logo: a round flat owl with coin eyes and an hourglass belly holding ledger lines">
+  <path d="M72 74 Q73 36 105 46 L89 78 Z" fill="#3a2d85"/>
+  <path d="M168 74 Q167 36 135 46 L151 78 Z" fill="#3a2d85"/>
+  <rect x="42" y="52" width="156" height="166" rx="74" fill="#4a3aa7"/>
+  <ellipse cx="57" cy="152" rx="13" ry="32" fill="#3a2d85"/>
+  <ellipse cx="183" cy="152" rx="13" ry="32" fill="#3a2d85"/>
+  <path d="M96 142 H144 Q148 142 148 146 C148 162 129 167 129 173 C129 179 148 184 148 200 Q148 204 144 204 H96 Q92 204 92 200 C92 184 111 179 111 173 C111 167 92 162 92 146 Q92 142 96 142 Z" fill="#fff7e8"/>
+  <circle cx="120" cy="170" r="2.6" fill="#f2b134"/>
+  <rect x="103" y="186" width="34" height="5" rx="2.5" fill="#f2b134"/>
+  <rect x="110" y="194" width="20" height="5" rx="2.5" fill="#f2b134"/>
+  <circle cx="88" cy="104" r="27" fill="#f2b134"/>
+  <circle cx="152" cy="104" r="27" fill="#f2b134"/>
+  <circle cx="88" cy="104" r="20" fill="#fff7e8"/>
+  <circle cx="152" cy="104" r="20" fill="#fff7e8"/>
+  <circle cx="91" cy="107" r="9" fill="#241f4a"/>
+  <circle cx="149" cy="107" r="9" fill="#241f4a"/>
+  <circle cx="87" cy="101" r="3" fill="#ffffff"/>
+  <circle cx="145" cy="101" r="3" fill="#ffffff"/>
+  <path d="M120 121 L109 130 Q120 142 131 130 Z" fill="#f2b134"/>
+  <rect x="86" y="212" width="22" height="11" rx="5.5" fill="#f2b134"/>
+  <rect x="132" y="212" width="22" height="11" rx="5.5" fill="#f2b134"/>
+</svg>

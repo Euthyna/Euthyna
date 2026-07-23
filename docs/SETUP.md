@@ -17,16 +17,16 @@ macOS 26.1, 2026-07-21. Nothing here needs an API key and nothing leaves your ma
 opencode ──baseURL──▶ euthyna gateway :4517 ──▶ vllm-metal :8000 (Serving A, 7–8B)
                         │ ledger · traces · prefix watchdog
                         ▼
-              euthyna report / doctor / analyze ◀── MiniCPM5-1B :8001 (Serving B, optional)
+              euthyna report / doctor / analyze ◀── Qwen3-1.7B :8001 (Serving B, optional)
 ```
 
 ### 1. Euthyna itself
 
 ```bash
-git clone <repo> euthyna && cd euthyna
-uv venv && uv pip install -e ".[test]"     # plain pip works too (Python ≥3.9)
-source .venv/bin/activate
-pytest                                      # 45 tests, mock-backed, no GPU needed
+git clone https://github.com/cdc542559455/euthyna.git && cd euthyna
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[test]"                    # or: uv venv && uv pip install -e ".[test]"
+pytest                                      # mock-backed, no GPU needed
 ```
 
 If you only want to hack on the gateway/CLI, you can stop here — the test suite
@@ -71,7 +71,7 @@ euthyna up --profile profiles/vllm-metal.yaml        # gateway on :4517
 `probe` writes `profiles/vllm-metal.yaml` with **measured** cache observability and a
 $0 local price sheet. On current vllm-metal, `cached_tokens` does **not** surface
 (`prompt_tokens_details: null`) — the profile records `surfaces: false` and the probe's
-latency evidence (13.4 s cold → 0.15 s warm on an identical prefix; see the `probe:`
+latency evidence (39.1 s cold → 0.17 s warm on an identical prefix; see the `probe:`
 block in the committed profile) shows APC working anyway. Euthyna never fabricates
 what the backend doesn't report.
 
@@ -113,14 +113,14 @@ euthyna report          # calls · tokens · $ · cache · prefix stability per 
 ```
 
 A healthy agent session reports `prefix_stable_ratio ≈ 0.93+` (append-only context).
-The first-run artifacts in `dev/e2e-first-run/` include a real 400-retry storm the
+The first-run artifacts in `docs/examples/e2e-first-run/` include a real 400-retry storm the
 watchdog caught at ratio 0.004 — that contrast is the product.
 
 ### 5. Serving B — the advisor slot (optional)
 
 ```bash
-VLLM_METAL_USE_PAGED_ATTENTION=1 VLLM_METAL_MEMORY_FRACTION=0.15 caffeinate -i \
-  ~/.venv-vllm-metal/bin/vllm serve openbmb/MiniCPM5-1B-MLX \
+VLLM_METAL_USE_PAGED_ATTENTION=1 VLLM_METAL_MEMORY_FRACTION=0.2 caffeinate -i \
+  ~/.venv-vllm-metal/bin/vllm serve mlx-community/Qwen3-1.7B-4bit \
   --host 127.0.0.1 --port 8001 --seed 1234 \
   --max-model-len 8192 --max-num-seqs 2 --disable-log-stats \
   --default-chat-template-kwargs '{"enable_thinking": false}'
@@ -131,7 +131,9 @@ euthyna analyze         # metadata in → annotations + recommendations out
 Separate process, separate port, KV-isolated from Serving A — by design. The advisor
 sees **metadata only** (counts, ratios, costs — never message content) and its output
 is banner-labeled advisory; nothing consumes it automatically. v0 ships the slot, not
-model quality: MiniCPM5-1B annotates; recommendation quality is gated work (Part 2).
+model quality. Default model per the measured comparison in
+`docs/benchmarks/serving-b/REPORT.md`: Qwen3-1.7B-4bit (only format-reliable
+1B-class model on this stack); recommendation quality is gated work (Part 2).
 
 ### 6. Frontier APIs — the same pipeline, bigger models
 
@@ -173,7 +175,7 @@ advisory-only regardless of how big the model is.
 
 The Serving-B slot is the entry point for model work. Scope sketch, in evidence order:
 
-1. **Annotation quality** (NOW tier): evaluate small models (MiniCPM5-1B, Qwen3-0.6B/
+1. **Annotation quality** (NOW tier): evaluate small models (Qwen3-0.6B/
    1.7B, …) on waste-taxonomy annotation against the research repo's 2,000-trace
    labeled dataset (LoRA splits exist: train 1107 / val 225 / test 168, repo-disjoint).
 2. **Non-convergence early warning**: reproduce the T10 AUROC 0.70 prefix signal on

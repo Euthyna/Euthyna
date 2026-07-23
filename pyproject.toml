@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,12 +8,31 @@ dynamic = ["version"]
 description = "Euthyna — agent-runtime control plane: a local bump-in-the-wire gateway that meters task-total LLM cost with native cache categories, diagnoses agent behavior from traces, and intervenes only with evidence. Nothing in excess; know thyself."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 keywords = ["agent", "control-plane", "llm", "cost", "observability", "opencode", "vllm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = ["PyYAML>=5.4", "aiohttp>=3.9"]
+
+[project.urls]
+Repository = "https://github.com/cdc542559455/euthyna"
+Issues = "https://github.com/cdc542559455/euthyna/issues"
+Changelog = "https://github.com/cdc542559455/euthyna/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest>=7.0", "pytest-asyncio>=0.23"]
+lint = ["ruff>=0.4"]
 
 [project.scripts]
 euthyna = "euthyna.cli.main:main"
@@ -26,3 +45,13 @@ version = { attr = "euthyna.version.__version__" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.ruff]
+extend-exclude = [
+    "euthyna/core",
+    "tests/test_accountant.py",
+    "tests/test_adapters.py",
+    "tests/test_transforms.py",
+    "tests/test_verifier.py",
+]
+line-length = 100

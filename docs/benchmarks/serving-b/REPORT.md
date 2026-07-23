@@ -64,5 +64,7 @@ VERIFICATION_GAP 0.67 / 0.43; others weak (n_pos 11–25, underpowered).
 
 n=174 single-seed; waste positives are sparse (11–25 per label); features are a lossy
 projection of what human annotators saw. Numbers are for ranking approaches, not for
-publication. Rerun: `bench.py --baseline`, `bench.py --endpoint ... --tag ...`,
-`classical.py`; raw per-example outputs in `results/`.
+publication. The benchmark runners and raw per-example outputs are not shipped in this
+repository because they depend on a not-yet-public research corpus; the summary
+JSONs alongside this report are the committed evidence. Rerun instructions will
+ship with the corpus.

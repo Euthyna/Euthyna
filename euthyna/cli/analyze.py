@@ -15,7 +15,6 @@ import datetime as _dt
 import json
 import re
 import urllib.request
-from pathlib import Path
 
 from euthyna.ledger import aggregate, home as _home, load_rows
 
@@ -74,7 +73,7 @@ def _trace_shapes(sessions: dict, date: str) -> dict:
         path = _home() / "traces" / f"{sid}.jsonl"
         if not path.exists():
             continue
-        events = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+        events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
         events = [e for e in events if e.get("ts", "").startswith(date)]
         if events:
             shapes[sid] = {
