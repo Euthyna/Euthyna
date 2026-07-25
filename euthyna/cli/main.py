@@ -55,6 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--advisor-model", default=None,
                          help="model id (default: first from the endpoint's /v1/models)")
     analyze.add_argument("--date", default=None)
+
+    submit = sub.add_parser("submit", help="package local telemetry (hash-only tier) into an "
+                                           "offline submission tarball — nothing is uploaded")
+    submit.add_argument("--from", dest="from_date", default=None, metavar="YYYY-MM-DD",
+                        help="start day (default: --to day only)")
+    submit.add_argument("--to", dest="to_date", default=None, metavar="YYYY-MM-DD",
+                        help="end day (default: today)")
+    submit.add_argument("--out", default=".", help="output directory (default: current)")
+    submit.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     return parser
 
 
@@ -93,6 +102,9 @@ def main(argv=None) -> int:
     if args.command == "analyze":
         from . import analyze
         return analyze.run(args)
+    if args.command == "submit":
+        from . import submit
+        return submit.run(args)
     return 2
 
 
