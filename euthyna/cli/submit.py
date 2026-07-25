@@ -158,6 +158,6 @@ def run(args) -> int:
     out = write_bundle(bundle, manifest, Path(args.out))
     print(f"submit: wrote {out}")
     print("submit: next step — open an issue titled 'submission: <id>' at "
-          "https://github.com/cdc542559455/euthyna-traces and attach this file. "
+          "https://github.com/Euthyna/euthyna-traces and attach this file. "
           "Nothing has been uploaded.")
     return 0

@@ -23,7 +23,7 @@ opencode ──baseURL──▶ euthyna gateway :4517 ──▶ vllm-metal :8000
 ### 1. Euthyna itself
 
 ```bash
-git clone https://github.com/cdc542559455/Euthyna.git && cd Euthyna
+git clone https://github.com/Euthyna/Euthyna.git && cd Euthyna
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[test]"                    # or: uv venv && uv pip install -e ".[test]"
 pytest                                      # mock-backed, no GPU needed

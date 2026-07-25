@@ -9,7 +9,7 @@
 Nothing in excess; know thyself.</p>
 
 <p align="center">
-  <a href="https://github.com/cdc542559455/Euthyna/actions/workflows/test.yml"><img src="https://github.com/cdc542559455/Euthyna/actions/workflows/test.yml/badge.svg" alt="tests"></a>
+  <a href="https://github.com/Euthyna/Euthyna/actions/workflows/test.yml"><img src="https://github.com/Euthyna/Euthyna/actions/workflows/test.yml/badge.svg" alt="tests"></a>
   <img src="https://img.shields.io/badge/python-3.9%E2%80%933.14-blue" alt="Python 3.9–3.14">
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0">
 </p>
@@ -39,7 +39,7 @@ leaving office.*
 Developer smoke test — no GPU, no model, no network:
 
 ```bash
-git clone https://github.com/cdc542559455/Euthyna.git && cd Euthyna
+git clone https://github.com/Euthyna/Euthyna.git && cd Euthyna
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[test]"
 pytest                    # mock-backed suite
@@ -112,7 +112,7 @@ disables everything and leaves a pure pipe.
 | `euthyna report` | Aggregate a day's ledger: calls, tokens, cache ratio, dollars, prefix stability |
 | `euthyna doctor` | Preflight the backend → gateway → host wiring |
 | `euthyna analyze` | Serving-B advisory read of the day's metadata (never acts) |
-| `euthyna submit` | Package telemetry (hash-only, anonymized, previewed) into an offline tarball for [community submission](https://github.com/cdc542559455/euthyna-traces) |
+| `euthyna submit` | Package telemetry (hash-only, anonymized, previewed) into an offline tarball for [community submission](https://github.com/Euthyna/euthyna-traces) |
 
 ## Design principles
 

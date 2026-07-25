@@ -3,7 +3,7 @@
 ## Setup and tests
 
 ```bash
-git clone https://github.com/cdc542559455/Euthyna.git && cd Euthyna
+git clone https://github.com/Euthyna/Euthyna.git && cd Euthyna
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[test]"
 pytest
