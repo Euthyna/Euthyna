@@ -157,7 +157,7 @@ def run(args) -> int:
             return 0
     out = write_bundle(bundle, manifest, Path(args.out))
     print(f"submit: wrote {out}")
-    print("submit: next step — attach this file to a submission issue at the community "
-          "traces repository (see README), or share it with your Euthyna contact. "
+    print("submit: next step — open an issue titled 'submission: <id>' at "
+          "https://github.com/cdc542559455/euthyna-traces and attach this file. "
           "Nothing has been uploaded.")
     return 0

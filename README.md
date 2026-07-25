@@ -112,6 +112,7 @@ disables everything and leaves a pure pipe.
 | `euthyna report` | Aggregate a day's ledger: calls, tokens, cache ratio, dollars, prefix stability |
 | `euthyna doctor` | Preflight the backend → gateway → host wiring |
 | `euthyna analyze` | Serving-B advisory read of the day's metadata (never acts) |
+| `euthyna submit` | Package telemetry (hash-only, anonymized, previewed) into an offline tarball for [community submission](https://github.com/cdc542559455/euthyna-traces) |
 
 ## Design principles
 
