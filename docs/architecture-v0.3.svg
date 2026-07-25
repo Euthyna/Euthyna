@@ -1,99 +1,25 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>arcp — Agent-Runtime Control Plane · Architecture v0.3 (draft)</title>
-<style>
-  :root { color-scheme: light dark; }
-  .viz-root {
-    color-scheme: light;
-    --page:      #f9f9f7;
-    --surface:   #fcfcfb;
-    --ink:       #0b0b0b;
-    --ink2:      #52514e;
-    --muted:     #898781;
-    --hair:      #e1e0d9;
-    --border:    rgba(11,11,11,0.10);
-    --cp:        #2a78d6;  /* control plane accent (blue) */
-    --cp-tint:   rgba(42,120,214,0.06);
-    --waist:     #4a3aa7;  /* protocol accent (violet) */
-    --waist-tint:rgba(74,58,167,0.07);
-    --dp:        #1baf7a;  /* data plane accent (aqua) */
-    --dp-tint:   rgba(27,175,122,0.055);
-    --sb:        #eb6834;  /* Serving B accent (orange) */
-    --sb-tint:   rgba(235,104,52,0.08);
-    --good:      #0ca30c;
-    --warn:      #b97900;
-    --crit:      #d03b3b;
-    --neutral-tint: rgba(11,11,11,0.035);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) .viz-root {
-      color-scheme: dark;
-      --page:      #0d0d0d;
-      --surface:   #1a1a19;
-      --ink:       #ffffff;
-      --ink2:      #c3c2b7;
-      --muted:     #898781;
-      --hair:      #2c2c2a;
-      --border:    rgba(255,255,255,0.10);
-      --cp:        #3987e5;
-      --cp-tint:   rgba(57,135,229,0.10);
-      --waist:     #9085e9;
-      --waist-tint:rgba(144,133,233,0.10);
-      --dp:        #199e70;
-      --dp-tint:   rgba(25,158,112,0.10);
-      --sb:        #d95926;
-      --sb-tint:   rgba(217,89,38,0.12);
-      --good:      #0ca30c;
-      --warn:      #fab219;
-      --crit:      #e66767;
-      --neutral-tint: rgba(255,255,255,0.05);
-    }
-  }
-  :root[data-theme="dark"] .viz-root {
-    color-scheme: dark;
-    --page:      #0d0d0d;
-    --surface:   #1a1a19;
-    --ink:       #ffffff;
-    --ink2:      #c3c2b7;
-    --muted:     #898781;
-    --hair:      #2c2c2a;
-    --border:    rgba(255,255,255,0.10);
-    --cp:        #3987e5;
-    --cp-tint:   rgba(57,135,229,0.10);
-    --waist:     #9085e9;
-    --waist-tint:rgba(144,133,233,0.10);
-    --dp:        #199e70;
-    --dp-tint:   rgba(25,158,112,0.10);
-    --sb:        #d95926;
-    --sb-tint:   rgba(217,89,38,0.12);
-    --good:      #0ca30c;
-    --warn:      #fab219;
-    --crit:      #e66767;
-    --neutral-tint: rgba(255,255,255,0.05);
-  }
-
-  html, body { margin:0; padding:0; background: var(--page); }
-  .viz-root {
-    background: var(--page);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    padding: 20px 16px 28px;
-    min-height: 100vh;
-    box-sizing: border-box;
-  }
-  .frame { max-width: 1480px; margin: 0 auto; }
-  .topbar { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding: 2px 6px 12px; }
-  .title { color: var(--ink); font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
-  .subtitle { color: var(--ink2); font-size: 12.5px; margin-top: 3px; }
-  .toggle {
-    font: 500 11.5px system-ui, -apple-system, "Segoe UI", sans-serif;
-    color: var(--ink2); background: var(--surface);
-    border: 1px solid var(--border); border-radius: 7px;
-    padding: 5px 10px; cursor: pointer; white-space: nowrap;
-  }
-  svg { width: 100%; height: auto; display: block; }
+<svg viewBox="0 0 1480 1052" role="img" aria-label="arcp architecture diagram: control plane above a narrow protocol waist, data plane with three integration rings below, agent runtimes and model backends at the bottom, side panels for actuators, the 1B model ladder, product loops, and design invariants.">
+<style><![CDATA[
+svg { --page:      #f9f9f7;
+--surface:   #fcfcfb;
+--ink:       #0b0b0b;
+--ink2:      #52514e;
+--muted:     #898781;
+--hair:      #e1e0d9;
+--border:    rgba(11,11,11,0.10);
+--cp:        #2a78d6;  /* control plane accent (blue) */
+--cp-tint:   rgba(42,120,214,0.06);
+--waist:     #4a3aa7;  /* protocol accent (violet) */
+--waist-tint:rgba(74,58,167,0.07);
+--dp:        #1baf7a;  /* data plane accent (aqua) */
+--dp-tint:   rgba(27,175,122,0.055);
+--sb:        #eb6834;  /* Serving B accent (orange) */
+--sb-tint:   rgba(235,104,52,0.08);
+--good:      #0ca30c;
+--warn:      #b97900;
+--crit:      #d03b3b;
+--neutral-tint: rgba(11,11,11,0.035); }
+  
   svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 
   .panel      { fill: var(--surface); stroke: var(--border); rx: 10; }
@@ -124,20 +50,10 @@
   .warn-ink  { fill: var(--warn); font-weight: 650; }
   .crit-ink  { fill: var(--crit); font-weight: 650; }
   .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10.3px; }
-</style>
-</head>
-<body>
-<div class="viz-root" id="root">
-  <div class="frame">
-    <div class="topbar">
-      <div>
-        <div class="title">arcp — Agent-Runtime Control Plane</div>
-        <div class="subtitle">Architecture v0.3 (draft for maintainer review) · hourglass: one protocol waist, everything host-specific below it, everything that grows above it · three integration rings</div>
-      </div>
-      <button class="toggle" id="themeToggle">Toggle light / dark</button>
-    </div>
 
-    <svg viewBox="0 0 1480 1052" role="img" aria-label="arcp architecture diagram: control plane above a narrow protocol waist, data plane with three integration rings below, agent runtimes and model backends at the bottom, side panels for actuators, the 1B model ladder, product loops, and design invariants.">
+]]></style>
+<rect x="0" y="0" width="1480" height="1052" fill="#f9f9f7"/>
+
 
       <!-- ============ LEFT COLUMN : THE HOURGLASS ============ -->
 
@@ -358,22 +274,3 @@
         </marker>
       </defs>
     </svg>
-  </div>
-</div>
-<script>
-  (function () {
-    var btn = document.getElementById('themeToggle');
-    btn.addEventListener('click', function () {
-      var r = document.documentElement;
-      var cur = r.getAttribute('data-theme');
-      if (cur === 'dark') { r.setAttribute('data-theme', 'light'); }
-      else if (cur === 'light') { r.setAttribute('data-theme', 'dark'); }
-      else {
-        var osDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        r.setAttribute('data-theme', osDark ? 'light' : 'dark');
-      }
-    });
-  })();
-</script>
-</body>
-</html>

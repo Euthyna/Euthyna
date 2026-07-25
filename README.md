@@ -135,12 +135,11 @@ only with evidence. See [PROVENANCE.md](PROVENANCE.md).
 
 - [Setup guide](docs/SETUP.md) — local CP/DP/backend walkthrough (verified end
   to end), frontier APIs, model-side track
-- [Architecture v0.3](docs/architecture-v0.3.html) ·
-  [Interaction flows](docs/interaction-flows-v0.3.html) — the hourglass design,
-  SIDECAR/HARNESS modes, the four actuators
+- [Architecture v0.3](docs/architecture.md) — the hourglass design,
+  SIDECAR/HARNESS modes, the four actuators (diagrams render inline)
 - [Serving-B model benchmark](docs/benchmarks/serving-b/REPORT.md) — why the
   advisor defaults to a 1.7B model, with numbers
-- [First-run evidence](docs/examples/e2e-first-run/NOTES.md) — a real agent
+- [First-run evidence](docs/examples/e2e-sample/NOTES.md) — a real agent
   session next to a real 400-retry storm the watchdog caught
 - [Changelog](CHANGELOG.md) · [Provenance](PROVENANCE.md)
 
@@ -153,7 +152,7 @@ Known limitations are listed in the [changelog](CHANGELOG.md).
 **Next (v0.2)** — HARNESS mode (Euthyna owns the loop: `calibrate` /
 `experiment` with A/A floors), re-port of the upstream policy engine, and
 evidence-gated flow compilation. Design already in
-[docs/architecture-v0.3.html](docs/architecture-v0.3.html).
+[docs/architecture.md](docs/architecture.md).
 
 ## Contributing
 

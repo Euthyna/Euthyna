@@ -1,53 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>arcp × Agent Runtimes — Interaction Flows &amp; Scheduling Boundary (v0.3 draft)</title>
-<style>
-  :root { color-scheme: light dark; }
-  .viz-root {
-    color-scheme: light;
-    --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
-    --hair:#e1e0d9; --border:rgba(11,11,11,0.10);
-    --cp:#2a78d6;  --cp-tint:rgba(42,120,214,0.06);
-    --waist:#4a3aa7; --waist-tint:rgba(74,58,167,0.08);
-    --dp:#1baf7a;  --dp-tint:rgba(27,175,122,0.07);
-    --sb:#eb6834;  --sb-tint:rgba(235,104,52,0.08);
-    --host-tint:rgba(11,11,11,0.045);
-    --good:#0ca30c; --warn:#b97900; --crit:#d03b3b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) .viz-root {
-      color-scheme: dark;
-      --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
-      --hair:#2c2c2a; --border:rgba(255,255,255,0.10);
-      --cp:#3987e5;  --cp-tint:rgba(57,135,229,0.10);
-      --waist:#9085e9; --waist-tint:rgba(144,133,233,0.11);
-      --dp:#199e70;  --dp-tint:rgba(25,158,112,0.11);
-      --sb:#d95926;  --sb-tint:rgba(217,89,38,0.12);
-      --host-tint:rgba(255,255,255,0.055);
-      --good:#0ca30c; --warn:#fab219; --crit:#e66767;
-    }
-  }
-  :root[data-theme="dark"] .viz-root {
-    color-scheme: dark;
-    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
-    --hair:#2c2c2a; --border:rgba(255,255,255,0.10);
-    --cp:#3987e5;  --cp-tint:rgba(57,135,229,0.10);
-    --waist:#9085e9; --waist-tint:rgba(144,133,233,0.11);
-    --dp:#199e70;  --dp-tint:rgba(25,158,112,0.11);
-    --sb:#d95926;  --sb-tint:rgba(217,89,38,0.12);
-    --host-tint:rgba(255,255,255,0.055);
-    --good:#0ca30c; --warn:#fab219; --crit:#e66767;
-  }
-  html, body { margin:0; padding:0; background:var(--page); }
-  .viz-root { background:var(--page); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; padding:20px 16px 28px; min-height:100vh; box-sizing:border-box; }
-  .frame { max-width:1500px; margin:0 auto; }
-  .topbar { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding:2px 6px 12px; }
-  .title { color:var(--ink); font-size:20px; font-weight:650; letter-spacing:-0.01em; }
-  .subtitle { color:var(--ink2); font-size:12.5px; margin-top:3px; }
-  .toggle { font:500 11.5px system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--ink2); background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:5px 10px; cursor:pointer; white-space:nowrap; }
+<svg viewBox="0 0 1500 1102" role="img" aria-label="arcp interaction flows: sidecar mode sequence where the host owns the loop, harness mode sequence where arcp owns the loop, a scheduling-boundary ownership table, and a runtime integration matrix.">
+<style><![CDATA[
+svg { --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+--hair:#e1e0d9; --border:rgba(11,11,11,0.10);
+--cp:#2a78d6;  --cp-tint:rgba(42,120,214,0.06);
+--waist:#4a3aa7; --waist-tint:rgba(74,58,167,0.08);
+--dp:#1baf7a;  --dp-tint:rgba(27,175,122,0.07);
+--sb:#eb6834;  --sb-tint:rgba(235,104,52,0.08);
+--host-tint:rgba(11,11,11,0.045);
+--good:#0ca30c; --warn:#b97900; --crit:#d03b3b; }
   svg { width:100%; height:auto; display:block; }
   svg text { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
 
@@ -77,20 +37,10 @@
   .dp-ink{ fill:var(--dp); } .cp-ink{ fill:var(--cp); } .waist-ink{ fill:var(--waist); } .sb-ink{ fill:var(--sb); }
   .chip-t{ font-size:9.6px; font-weight:700; letter-spacing:.04em; }
   .mono  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:9.8px; }
-</style>
-</head>
-<body>
-<div class="viz-root" id="root">
-  <div class="frame">
-    <div class="topbar">
-      <div>
-        <div class="title">arcp × Agent Runtimes — Interaction Flows &amp; the Scheduling Boundary</div>
-        <div class="subtitle">Companion to Architecture v0.3 · two operating modes as sequences · who decides what, per mode · where each runtime plugs in</div>
-      </div>
-      <button class="toggle" id="themeToggle">Toggle light / dark</button>
-    </div>
 
-    <svg viewBox="0 0 1500 1102" role="img" aria-label="arcp interaction flows: sidecar mode sequence where the host owns the loop, harness mode sequence where arcp owns the loop, a scheduling-boundary ownership table, and a runtime integration matrix.">
+]]></style>
+<rect x="0" y="0" width="1500" height="1102" fill="#f9f9f7"/>
+
 
       <defs>
         <marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
@@ -373,22 +323,3 @@
       <text x="28" y="1070" class="mut">drift in the meter triggers the next calibrate. Advisory never auto-acts; directives never exceed granted capabilities; content is never rewritten in either mode.</text>
       <text x="28" y="1092" class="mut-i">Draft for maintainer review — companion to arcp Architecture v0.3 (hourglass diagram). Ring-availability cells for non-openCode hosts are design intent, to be verified per host.</text>
     </svg>
-  </div>
-</div>
-<script>
-  (function () {
-    var btn = document.getElementById('themeToggle');
-    btn.addEventListener('click', function () {
-      var r = document.documentElement;
-      var cur = r.getAttribute('data-theme');
-      if (cur === 'dark') { r.setAttribute('data-theme', 'light'); }
-      else if (cur === 'light') { r.setAttribute('data-theme', 'dark'); }
-      else {
-        var osDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        r.setAttribute('data-theme', osDark ? 'light' : 'dark');
-      }
-    });
-  })();
-</script>
-</body>
-</html>

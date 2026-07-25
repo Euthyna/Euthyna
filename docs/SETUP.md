@@ -113,7 +113,7 @@ euthyna report          # calls · tokens · $ · cache · prefix stability per 
 ```
 
 A healthy agent session reports `prefix_stable_ratio ≈ 0.93+` (append-only context).
-The first-run artifacts in `docs/examples/e2e-first-run/` include a real 400-retry storm the
+The first-run artifacts in `docs/examples/e2e-sample/` include a real 400-retry storm the
 watchdog caught at ratio 0.004 — that contrast is the product.
 
 ### 5. Serving B — the advisor slot (optional)
