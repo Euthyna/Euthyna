@@ -19,6 +19,8 @@ import urllib.request
 from euthyna.ledger import aggregate, home as _home, load_rows
 
 BANNER = "ADVISORY ONLY — Euthyna does not act on any of this automatically."
+QUALITY_NOTE = ("experimental narrative advisor — judgment quality is NOT validated "
+                "(zero-shot small models failed our own benchmark: docs/benchmarks/serving-b)")
 
 PROMPT = """You are Euthyna's Serving-B advisor: the perception half of an agent-runtime \
 audit gateway. You read METADATA ONLY (token counts, cache ratios, prefix stability, \
@@ -92,7 +94,13 @@ def run(args) -> int:
         print(f"analyze: no ledger rows for {date}; run a task through the gateway first")
         return 0
     sessions = aggregate(rows)
-    data = {"date": date, "sessions": sessions, "trace_shapes": _trace_shapes(sessions, date)}
+    shapes = _trace_shapes(sessions, date)
+    # Re-map session ids before anything leaves this process: the advisor endpoint
+    # (possibly a cloud model) sees s001…, never the host's real session keys.
+    mapping = {sid: f"s{i + 1:03d}" for i, sid in enumerate(sorted(sessions))}
+    sessions = {mapping[sid]: s for sid, s in sessions.items()}
+    shapes = {mapping[sid]: shape for sid, shape in shapes.items() if sid in mapping}
+    data = {"date": date, "sessions": sessions, "trace_shapes": shapes}
     text = PROMPT + json.dumps(data, indent=1, default=str)
 
     try:
@@ -108,8 +116,9 @@ def run(args) -> int:
     out_dir = _home() / "advice"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{date}.md"
-    out.write_text(f"# Euthyna advisory — {date}\n\n> {BANNER}\n> model: {model}\n\n{advice}\n")
-    print(f"[{BANNER}]  (serving-b: {model})\n")
+    out.write_text(f"# Euthyna advisory — {date}\n\n> {BANNER}\n> {QUALITY_NOTE}\n"
+                   f"> model: {model}\n\n{advice}\n")
+    print(f"[{BANNER}]\n[{QUALITY_NOTE}]  (serving-b: {model})\n")
     print(advice)
     print(f"\nanalyze: saved to {out}")
     return 0

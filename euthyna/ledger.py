@@ -45,22 +45,53 @@ def _tokens(row: dict) -> tuple[int, int]:
     return prompt or 0, completion or 0
 
 
+def _row_cache_status(cost: dict) -> str:
+    """Three-state cache observability; derives from flags for pre-0.1.1 rows."""
+    if "cache_status" in cost:
+        return cost["cache_status"]
+    observed = cost.get("observed_flags") or {}
+    imputed = cost.get("imputed_flags") or {}
+    if observed.get("cached_tokens"):
+        return "observed"
+    if imputed.get("cached_tokens"):
+        return "imputed_zero"
+    if "observed_flags" not in cost:
+        return "observed"  # legacy/synthetic rows without flags: trust the value
+    return "unavailable"
+
+
 def aggregate(rows: list[dict]) -> dict:
-    """Per-session aggregates over ledger rows."""
+    """Per-session aggregates over ledger rows.
+
+    cached_tokens/cached_fraction are computed ONLY over calls whose cache
+    observability is known (observed or imputed_zero). Sessions where the cache
+    is unavailable on every call report None — unknown is never rendered as 0.
+    """
     sessions: dict = {}
     for row in rows:
         s = sessions.setdefault(row.get("session") or "?", {
             "calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0,
-            "cost_usd": 0.0, "ratios": [], "models": set(), "injected": 0,
+            "cache_known_calls": 0, "cache_known_prompt": 0, "cache_unavailable_calls": 0,
+            "cost_usd": 0.0, "cost_quality": {"exact": 0, "estimated": 0, "unavailable": 0},
+            "ratios": [], "models": set(), "injected": 0,
         })
         s["calls"] += 1
         prompt, completion = _tokens(row)
         s["prompt_tokens"] += prompt
         s["completion_tokens"] += completion
-        cost = row.get("cost") or {}
-        cached = (cost.get("native_tokens") or {}).get("cached_tokens")
-        s["cached_tokens"] += cached or 0
-        s["cost_usd"] += cost.get("list_cost_usd") or 0.0
+        cost = row.get("cost")
+        if cost:
+            status = _row_cache_status(cost)
+            if status == "unavailable":
+                s["cache_unavailable_calls"] += 1
+            else:
+                s["cached_tokens"] += (cost.get("native_tokens") or {}).get("cached_tokens") or 0
+                s["cache_known_calls"] += 1
+                s["cache_known_prompt"] += prompt
+            s["cost_usd"] += cost.get("list_cost_usd") or 0.0
+        quality = row.get("cost_quality") or ("exact" if cost else "unavailable")
+        key = "estimated" if quality.startswith("estimated") else quality
+        s["cost_quality"][key] = s["cost_quality"].get(key, 0) + 1
         if row.get("prefix_stable_ratio") is not None:
             s["ratios"].append(row["prefix_stable_ratio"])
         if row.get("model"):
@@ -72,9 +103,14 @@ def aggregate(rows: list[dict]) -> dict:
     for sid, s in sessions.items():
         ratios = s.pop("ratios")
         s["mean_prefix_stable_ratio"] = round(sum(ratios) / len(ratios), 4) if ratios else None
-        s["cached_fraction"] = (
-            round(s["cached_tokens"] / s["prompt_tokens"], 4) if s["prompt_tokens"] else None
-        )
+        if s["cache_known_calls"] == 0:
+            s["cached_tokens"] = None
+            s["cached_fraction"] = None
+        else:
+            s["cached_fraction"] = (
+                round(s["cached_tokens"] / s["cache_known_prompt"], 4)
+                if s["cache_known_prompt"] else None
+            )
         s["cost_usd"] = round(s["cost_usd"], 6)
         s["models"] = sorted(s["models"])
         out[sid] = s

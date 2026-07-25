@@ -47,7 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--host", choices=["opencode", "none"], default="opencode")
 
     analyze = sub.add_parser("analyze", help="Serving-B advisory read of today's ledger+traces "
-                                             "(recommendations only; never acts)")
+                                             "(EXPERIMENTAL narrative advisor — judgment quality "
+                                             "not validated; never acts)")
     analyze.add_argument("--advisor-url", default="http://127.0.0.1:8001",
                          help="any OpenAI-dialect endpoint — local Serving B or a "
                               "frontier API (default: %(default)s)")
@@ -64,6 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="end day (default: today)")
     submit.add_argument("--out", default=".", help="output directory (default: current)")
     submit.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    submit.add_argument("--include-model-names", action="store_true",
+                        help="keep raw model names (default: pseudonymized hashes)")
     return parser
 
 

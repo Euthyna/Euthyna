@@ -2,7 +2,6 @@
 import json
 import tarfile
 
-import pytest
 
 from euthyna.cli.main import build_parser
 from euthyna.cli.submit import collect, summarize, write_bundle
@@ -42,13 +41,38 @@ def test_sessions_anonymized_and_counts(tmp_path):
     assert manifest["sessions"] == 2
     assert manifest["prompt_tokens"] == 200
     assert manifest["tier"] == "hash-only"
+    assert manifest["schema"] == 2
 
 
-def test_content_leak_guard_blocks(tmp_path):
-    bad = {**ROW, "surprise": "x" * 500}
+def test_allowlist_drops_unknown_fields_and_pseudonymizes(tmp_path):
+    bad = {**ROW, "surprise": "x" * 500, "model": "mlx-community/secret-model"}
     home = make_home(tmp_path, [bad])
-    with pytest.raises(ValueError, match="content-leak guard"):
-        collect(home, "2026-07-24", "2026-07-24")
+    bundle = collect(home, "2026-07-24", "2026-07-24")
+    (row,) = bundle["ledgers"]["2026-07-24.jsonl"]
+    assert "surprise" not in row  # allowlist projection, not filtering
+    assert row["model"].startswith("model-") and "secret" not in row["model"]
+    named = collect(home, "2026-07-24", "2026-07-24", include_model_names=True)
+    assert named["ledgers"]["2026-07-24.jsonl"][0]["model"] == "mlx-community/secret-model"
+
+
+def test_cost_error_becomes_enum(tmp_path):
+    row = {**ROW, "cost_error": "model local/foo not in price sheet 2026-07-21 " + "x" * 200}
+    home = make_home(tmp_path, [row])
+    bundle = collect(home, "2026-07-24", "2026-07-24")
+    assert bundle["ledgers"]["2026-07-24.jsonl"][0]["cost_error"] == "unknown_model"
+
+
+def test_message_hashes_rekeyed_per_submission(tmp_path):
+    events = [{"ts": "2026-07-24T10:00:00+08:00", "n_messages": 2,
+               "roles": ["system", "user"], "message_sha256": ["aabb", "aabb"],
+               "message_bytes": [10, 20], "prefix_stable_ratio": None}]
+    home = make_home(tmp_path, [ROW], events=events)
+    one = collect(home, "2026-07-24", "2026-07-24")["traces"]["s001.jsonl"][0]
+    two = collect(home, "2026-07-24", "2026-07-24")["traces"]["s001.jsonl"][0]
+    assert one["message_hmac"][0] == one["message_hmac"][1]  # structure preserved within
+    assert one["message_hmac"][0] != "aabb"  # never the raw hash
+    assert one["message_hmac"][0] != two["message_hmac"][0]  # fresh salt per submission
+    assert "message_sha256" not in one
 
 
 def test_date_filter(tmp_path):

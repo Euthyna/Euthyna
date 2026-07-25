@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.1.1] — 2026-07-25
+
+Contract and privacy hardening; no behavior change to the proxied traffic.
+
+### Fixed
+- **Unknown cache no longer renders as zero.** Cost rows now carry a three-state
+  `cache_status` (observed / imputed_zero / unavailable) derived at the ledger
+  boundary; `report`, `/euthyna/stats`, and aggregation show `—`/null for
+  unavailable instead of summing a fabricated 0, and each row carries
+  `cost_quality` (exact / estimated_under_no_cache_assumption / unavailable).
+- **Malformed request bodies are still ledgered.** Request-body parsing moved
+  out of the fail-open observation call; a bad body records
+  `request_parse_error` on a full ledger row instead of silently dropping it.
+
+### Changed
+- `euthyna submit` privacy is now allowlist-shaped: rows are projected through
+  an explicit schema (unknown fields dropped, never copied); message hashes are
+  re-keyed with a per-submission random HMAC salt (discarded after packaging);
+  model names are pseudonymized by default (`--include-model-names` opts in);
+  free-text `cost_error` becomes a closed enum. Submission schema v2.
+- `euthyna analyze` re-maps session ids to `s001…` before anything is sent to
+  the advisor endpoint, and is now labeled everywhere as an **experimental
+  narrative advisor** whose judgment quality is not validated (per our own
+  benchmark, docs/benchmarks/serving-b).
+
+
 ## [0.1.0] — 2026-07-22
 
 First public release. SIDECAR mode end to end, verified against a real agent

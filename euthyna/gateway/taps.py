@@ -157,6 +157,32 @@ def normalize_anthropic_usage(usage: dict) -> dict:
     return out
 
 
+def cache_status(cost: dict) -> str:
+    """Three-state cache observability for a cost row: observed / imputed_zero /
+    unavailable. Derived from the accountant's flags at the ledger boundary so the
+    ported core stays untouched; 'unavailable' must render as unknown (never 0)
+    downstream."""
+    if cost["observed_flags"]["cached_tokens"]:
+        return "observed"
+    if cost["imputed_flags"]["cached_tokens"]:
+        return "imputed_zero"
+    return "unavailable"
+
+
+def cost_quality(cost: dict) -> str:
+    """exact — every category that can move the bill was observed;
+    estimated_under_no_cache_assumption — a cache category is unobservable AND its
+    rate differs from the input rate, so the true bill may be lower."""
+    prices = cost.get("list_price_per_1m") or {}
+    input_rate = prices.get("input_per_1m")
+    for cat, rate_key in (("cached_tokens", "cached_input_per_1m"),
+                          ("cache_creation_tokens", "cache_creation_per_1m")):
+        rate = prices.get(rate_key)
+        if not cost["observed_flags"][cat] and rate is not None and rate != input_rate:
+            return "estimated_under_no_cache_assumption"
+    return "exact"
+
+
 class Taps:
     """Ledger + trace + prefix watchdog. One instance per gateway process."""
 
@@ -178,6 +204,7 @@ class Taps:
         injected: bool,
         request_sha: Optional[tuple[str, str]] = None,
         truncated: bool = False,
+        request_parse_error: Optional[str] = None,
     ) -> None:
         request_json = request_json or {}
         messages = request_json.get("messages") or []
@@ -215,8 +242,10 @@ class Taps:
             "usage": usage,  # exactly as the provider sent it
             "gateway_injected": injected,
             "prefix_stable_ratio": ratio,
-            "cost": cost,
+            "cost": {**cost, "cache_status": cache_status(cost)} if cost else None,
+            "cost_quality": cost_quality(cost) if cost else "unavailable",
             "cost_error": cost_error,
+            "request_parse_error": request_parse_error,
             # True when the response was not fully observed (buffer cap, disconnect):
             # the call is still counted, usage may be missing.
             "tap_truncated": truncated,

@@ -26,17 +26,34 @@ def run(args) -> int:
     print(f"euthyna report — {date}")
     print(header)
     print("-" * len(header))
-    totals = {"calls": 0, "prompt_tokens": 0, "cached_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0}
+    totals = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0}
+    cached_total, cache_unknown = 0, False
+    quality = {"exact": 0, "estimated": 0, "unavailable": 0}
     for sid, s in sorted(sessions.items()):
         ratio = s["mean_prefix_stable_ratio"]
-        print(f"{sid[:18]:<18} {s['calls']:>5} {s['prompt_tokens']:>9} {s['cached_tokens']:>9} "
+        cached = s["cached_tokens"]
+        if cached is None:
+            cache_unknown = True  # unknown is rendered as unknown, never as 0
+        else:
+            cached_total += cached
+        print(f"{sid[:18]:<18} {s['calls']:>5} {s['prompt_tokens']:>9} "
+              f"{cached if cached is not None else '—':>9} "
               f"{s['completion_tokens']:>7} {s['cost_usd']:>10.4f} "
               f"{ratio if ratio is not None else '—':>7}")
         for key in totals:
             totals[key] += s[key]
+        for k, v in s["cost_quality"].items():
+            quality[k] = quality.get(k, 0) + v
     print("-" * len(header))
-    print(f"{'TOTAL':<18} {totals['calls']:>5} {totals['prompt_tokens']:>9} {totals['cached_tokens']:>9} "
+    cached_disp = f"{cached_total}*" if cache_unknown and cached_total else ("—" if cache_unknown else cached_total)
+    print(f"{'TOTAL':<18} {totals['calls']:>5} {totals['prompt_tokens']:>9} {cached_disp:>9} "
           f"{totals['completion_tokens']:>7} {totals['cost_usd']:>10.4f}")
     models = sorted({m for s in sessions.values() for m in s["models"]})
     print(f"models: {', '.join(models) if models else '—'}")
+    if cache_unknown:
+        print("—/* cache not observable on some calls (backend does not surface cached_tokens); "
+              "unknown is not counted as 0")
+    if quality["estimated"] or quality["unavailable"]:
+        print(f"cost quality: {quality['exact']} exact · {quality['estimated']} estimated "
+              f"(cache unobserved; true bill may be lower) · {quality['unavailable']} unavailable")
     return 0

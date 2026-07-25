@@ -305,6 +305,54 @@ async def test_oversized_response_still_ledgered(gateway, monkeypatch):
     assert row["status"] == 200
 
 
+async def test_malformed_request_body_still_ledgered(gateway):
+    client, config, _ = gateway
+    resp = await client.post("/v1/chat/completions", data=b'{"model": broken',
+                             headers={"Content-Type": "application/json"})
+    assert resp.status >= 400  # backend rejects it; the pipe relays that honestly
+    (row,) = ledger_rows(config)
+    assert row["request_parse_error"] == "JSONDecodeError"
+    assert row["usage"] is None  # unknown, not fabricated
+    assert row["status"] >= 400
+
+
+async def test_unobservable_cache_is_unavailable_not_zero(backend, tmp_path, registries):
+    config = make_config(backend, tmp_path)
+    config.profile.raw["cache_schema"] = {
+        "cached_tokens": {"surfaces": False, "path": None}}  # vllm-metal-style backend
+    client = TestClient(TestServer(create_app(config)))
+    await client.start_server()
+    try:
+        await client.post("/v1/chat/completions", json={
+            "model": "test-model", "messages": [{"role": "user", "content": "x"}]})
+        (row,) = ledger_rows(config)
+        assert row["cost"]["cache_status"] == "unavailable"
+        assert row["cost"]["observed_flags"]["cached_tokens"] is False
+        assert row["cost"]["imputed_flags"]["cached_tokens"] is False
+        from euthyna.ledger import aggregate
+        s = aggregate([row])[row["session"]]
+        assert s["cached_tokens"] is None  # unknown never rendered as 0
+        assert s["cached_fraction"] is None
+        assert s["cache_unavailable_calls"] == 1
+    finally:
+        await client.close()
+
+
+async def test_cost_quality_estimated_when_cache_priced_but_unobserved(backend, tmp_path, registries):
+    config = make_config(backend, tmp_path)
+    config.profile.raw["cache_schema"] = {"cached_tokens": {"surfaces": False, "path": None}}
+    config.profile.raw["prices_per_1m"] = {"input": 1.25, "cached_input": 0.125, "output": 10.0}
+    client = TestClient(TestServer(create_app(config)))
+    await client.start_server()
+    try:
+        await client.post("/v1/chat/completions", json={
+            "model": "test-model", "messages": [{"role": "user", "content": "x"}]})
+        (row,) = ledger_rows(config)
+        assert row["cost_quality"] == "estimated_under_no_cache_assumption"
+    finally:
+        await client.close()
+
+
 async def test_healthz_and_stats(gateway):
     client, config, _ = gateway
     assert (await (await client.get("/healthz")).json())["ok"] is True

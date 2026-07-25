@@ -124,9 +124,17 @@ async def proxy(request: web.Request) -> web.StreamResponse:
         upstream.close()  # partially-read body: close, don't pool
 
     if dialect and not config.transparent:
-        # Fail-open observation — runs even for truncated/disconnected calls so
-        # every call is ledgered; usage may be unknown on those rows.
+        # Fail-open observation — runs even for truncated/disconnected calls and
+        # malformed request bodies, so every call is ledgered; fields the tap
+        # could not parse are recorded as unknown, never dropped rows.
         truncated = overflow or relay_error is not None
+        request_json = None
+        request_parse_error = None
+        if body:
+            try:
+                request_json = json.loads(body)
+            except Exception as exc:
+                request_parse_error = type(exc).__name__
         response_json = response_sse = None
         try:
             raw = _decompress(b"".join(chunks), upstream.headers.get("Content-Encoding"))
@@ -143,13 +151,14 @@ async def proxy(request: web.Request) -> web.StreamResponse:
                 path=request.path,
                 status=upstream.status,
                 latency_ms=(time.monotonic() - started) * 1000,
-                request_json=json.loads(body) if body else None,
+                request_json=request_json,
                 response_json=response_json,
                 response_sse=response_sse,
                 session_header=request.headers.get(SESSION_HEADER),
                 injected=injected,
                 request_sha=request_sha,
                 truncated=truncated,
+                request_parse_error=request_parse_error,
             )
         except Exception:
             pass
@@ -171,13 +180,17 @@ async def stats(request: web.Request) -> web.Response:
     config = request.app[CONFIG_KEY]
     sessions = ledger.aggregate(
         ledger.load_rows(dt.date.today().isoformat(), home_dir=config.home))
-    totals = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
-              "cached_tokens": 0, "cost_usd": 0.0}
+    totals = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0}
     ratios = [s["mean_prefix_stable_ratio"] for s in sessions.values()
               if s["mean_prefix_stable_ratio"] is not None]
+    cached_known = [s["cached_tokens"] for s in sessions.values()
+                    if s["cached_tokens"] is not None]
     for s in sessions.values():
         for key in totals:
             totals[key] += s[key]
+    # unknown cache is reported as null, never summed as 0
+    totals["cached_tokens"] = sum(cached_known) if cached_known else None
+    totals["cache_unavailable_sessions"] = len(sessions) - len(cached_known)
     totals["sessions"] = len(sessions)
     totals["mean_prefix_stable_ratio"] = round(sum(ratios) / len(ratios), 4) if ratios else None
     totals["cost_usd"] = round(totals["cost_usd"], 6)

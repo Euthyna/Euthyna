@@ -111,7 +111,7 @@ disables everything and leaves a pure pipe.
 | `euthyna probe` | Measure a backend's cache-field observability; write its profile |
 | `euthyna report` | Aggregate a day's ledger: calls, tokens, cache ratio, dollars, prefix stability |
 | `euthyna doctor` | Preflight the backend → gateway → host wiring |
-| `euthyna analyze` | Serving-B advisory read of the day's metadata (never acts) |
+| `euthyna analyze` | Serving-B advisory read of the day's metadata — **experimental narrative advisor**, judgment quality [not validated](docs/benchmarks/serving-b/REPORT.md); never acts |
 | `euthyna submit` | Package telemetry (hash-only, anonymized, previewed) into an offline tarball for [community submission](https://github.com/Euthyna/euthyna-traces) |
 
 ## Design principles
