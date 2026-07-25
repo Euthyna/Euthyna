@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **`euthyna mine`** — Stage 0/1 repeated-flow miner + classifier (offline;
+  deterministic, no LLM, no network). Mines *repeated static flows* (contiguous
+  ≥3-step subsequences recurring ≥3× across ≥2 sessions) at three signature
+  levels (L0 exact / L1 structural / L2 template with literals slotted), then
+  classifies them into a data-driven taxonomy with distillation candidates. The
+  perception half of the v0.2 *evidence-gated flow compilation* slot: descriptive
+  only — generates no skills (Stage 2) and makes no efficacy/savings claims
+  (Stage 3 A/B + A/A floor only); amortization figures are conservative
+  byte-weight upper bounds. Structure-only output (signatures, hashes, arg
+  *shapes*, counts); no raw trace content is emitted; Euthyna traces mined on
+  `message_sha256` (hash-only, never reversed). Adapters: `miniswe`, `openhands`,
+  `magagent`, `taubench`, and `mode: hash_only`. New module `euthyna/mine/`
+  (does not touch `euthyna/core/`), docs in `docs/flow-mining.md`, and a
+  committed reference run over 3 public LMCache corpora in
+  `docs/flow-mining/results/` (with an adversarial-review caveat section).
+
 ## [0.1.0] — 2026-07-22
 
 First public release. SIDECAR mode end to end, verified against a real agent

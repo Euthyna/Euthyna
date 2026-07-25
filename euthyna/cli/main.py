@@ -55,6 +55,22 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--advisor-model", default=None,
                          help="model id (default: first from the endpoint's /v1/models)")
     analyze.add_argument("--date", default=None)
+
+    mine = sub.add_parser("mine", help="Stage 0/1 repeated-flow miner + classifier "
+                                       "(offline; descriptive only, no efficacy claims)")
+    mine.add_argument("--config", default=None,
+                      help="corpora JSON: corpus -> {glob, mode|adapter}; see docs/flow-mining.md")
+    mine.add_argument("--out", default="out")
+    mine.add_argument("--inspect", action="store_true",
+                      help="dump each corpus's record schema and exit (no mining)")
+    mine.add_argument("--classify", action="store_true",
+                      help="also emit candidates_classified.jsonl (taxonomy + skill sketch)")
+    mine.add_argument("--min-len", type=int, default=3, dest="min_len")
+    mine.add_argument("--max-len", type=int, default=8, dest="max_len")
+    mine.add_argument("--min-occ", type=int, default=3, dest="min_occ")
+    mine.add_argument("--min-sessions", type=int, default=2, dest="min_sessions")
+    mine.add_argument("--min-distinct", type=int, default=2, dest="min_distinct")
+    mine.add_argument("--no-dedup", action="store_false", dest="dedup", default=True)
     return parser
 
 
@@ -93,6 +109,9 @@ def main(argv=None) -> int:
     if args.command == "analyze":
         from . import analyze
         return analyze.run(args)
+    if args.command == "mine":
+        from . import mine
+        return mine.run(args)
     return 2
 
 
