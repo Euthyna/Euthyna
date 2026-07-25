@@ -128,4 +128,7 @@ def run(args) -> int:
     print(f"probe: model = {profile['model']}")
     print(f"probe: cached_tokens surfaces = {cached['surfaces']} (measured, second call: "
           f"{json.dumps(profile['probe']['second_usage'])})")
+    if args.api_key_env:
+        print("probe: NOTE — prices_per_1m in the profile are 0.0 placeholders; edit them to "
+              "the provider's real list prices or every $ in `euthyna report` will read 0")
     return 0

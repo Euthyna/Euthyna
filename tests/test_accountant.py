@@ -52,6 +52,42 @@ def test_effective_cost_h1_frozen_weights():
     assert abs(effective_cost_h1(demo) - 16400) < 1e-6
 
 
+def test_anthropic_cache_creation_not_double_billed():
+    """Normalized prompt_tokens includes cache reads AND creation writes; creation must be
+    billed once at cache_creation rate, not also at input rate. True bill at claude-cache
+    list prices for (input 1000, read 8000, creation 2000, output 500) is $0.0204."""
+    usage = {"prompt_tokens": 11000, "completion_tokens": 500,
+             "prompt_tokens_details": {"cached_tokens": 8000, "cache_creation_tokens": 2000}}
+    row = cost_row_from_usage(usage, model="anthropic/claude-cache")
+    assert row["native_tokens"]["uncached_prompt_tokens"] == 1000
+    expected = 1000 * 3.00 / 1e6 + 8000 * 0.30 / 1e6 + 2000 * 3.75 / 1e6 + 500 * 15.00 / 1e6
+    assert abs(row["list_cost_usd"] - expected) < 1e-9  # 0.0204
+
+
+def test_unpriced_cache_creation_refuses_total(registries):
+    """Creation tokens present but cache_creation_per_1m is null: a total would silently
+    undercount, so list_cost_usd stays None with the reason on record."""
+    from euthyna.core import accountant
+    accountant.PROVIDER_CACHE_SCHEMAS["test/unpriced-cc"] = {
+        "cached_tokens": {"surfaces": True, "path": ("prompt_tokens_details", "cached_tokens")},
+        "cache_creation_tokens": {"surfaces": True,
+                                  "path": ("prompt_tokens_details", "cache_creation_tokens")},
+        "reasoning_tokens": {"surfaces": False, "path": None},
+    }
+    accountant.PRICE_SHEET["2026-07-15"]["test/unpriced-cc"] = {
+        "input_per_1m": 1.0, "cached_input_per_1m": 0.1, "output_per_1m": 5.0,
+        "cache_creation_per_1m": None, "notes": "test"}
+    usage = {"prompt_tokens": 1000, "completion_tokens": 10,
+             "prompt_tokens_details": {"cached_tokens": 100, "cache_creation_tokens": 50}}
+    row = cost_row_from_usage(usage, model="test/unpriced-cc")
+    assert row["list_cost_usd"] is None
+    assert "cache_creation" in row["list_cost_note"]
+    # without creation tokens the same route still prices normally
+    usage2 = {"prompt_tokens": 1000, "completion_tokens": 10,
+              "prompt_tokens_details": {"cached_tokens": 100}}
+    assert cost_row_from_usage(usage2, model="test/unpriced-cc")["list_cost_usd"] is not None
+
+
 def test_recompute_batch():
     rows = recompute([{"prompt_tokens": 100, "completion_tokens": 50}] * 3)
     assert len(rows) == 3

@@ -143,7 +143,10 @@ def cost_row_from_usage(usage, model="openai/gpt-5-5", price_date="2026-07-15"):
         cc_imputed = False
         cc_val = None  # never fabricate a value for a route that has no such line
 
-    uncached = (prompt_tokens - cached_val) if prompt_tokens is not None else None
+    # Normalized prompt_tokens INCLUDES cache reads AND cache-creation writes
+    # (see normalize_anthropic_usage): both must come out of the uncached line,
+    # or creation tokens get billed twice (input rate + cache_creation rate).
+    uncached = (prompt_tokens - cached_val - (cc_val or 0)) if prompt_tokens is not None else None
 
     def usd(tokens, per_1m):
         if tokens is None or per_1m is None:
@@ -151,12 +154,18 @@ def cost_row_from_usage(usage, model="openai/gpt-5-5", price_date="2026-07-15"):
         return round(tokens / 1_000_000.0 * per_1m, 8)
 
     list_cost = None
+    cost_note = None
     if prompt_tokens is not None and completion_tokens is not None:
-        c_in = usd(uncached, p["input_per_1m"]) or 0.0
-        c_cache = usd(cached_val, p["cached_input_per_1m"]) or 0.0
-        c_cc = usd(cc_val, p["cache_creation_per_1m"]) if cc_val else 0.0
-        c_out = usd(completion_tokens, p["output_per_1m"]) or 0.0
-        list_cost = round(c_in + c_cache + (c_cc or 0.0) + c_out, 8)
+        if cc_val and p["cache_creation_per_1m"] is None:
+            # Creation tokens exist but the sheet has no price for them: a total would
+            # silently undercount, which is fabrication. Leave it None with the reason.
+            cost_note = "cache_creation_tokens present but cache_creation_per_1m is null"
+        else:
+            c_in = usd(uncached, p["input_per_1m"]) or 0.0
+            c_cache = usd(cached_val, p["cached_input_per_1m"]) or 0.0
+            c_cc = usd(cc_val, p["cache_creation_per_1m"]) if cc_val else 0.0
+            c_out = usd(completion_tokens, p["output_per_1m"]) or 0.0
+            list_cost = round(c_in + c_cache + (c_cc or 0.0) + c_out, 8)
 
     return {
         "model": model,
@@ -177,6 +186,7 @@ def cost_row_from_usage(usage, model="openai/gpt-5-5", price_date="2026-07-15"):
         "list_price_per_1m": {k: p.get(k) for k in ("input_per_1m", "cached_input_per_1m",
                                                     "output_per_1m", "cache_creation_per_1m")},
         "list_cost_usd": list_cost,
+        "list_cost_note": cost_note,
     }
 
 

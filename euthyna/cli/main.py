@@ -71,6 +71,15 @@ def build_parser() -> argparse.ArgumentParser:
     mine.add_argument("--min-sessions", type=int, default=2, dest="min_sessions")
     mine.add_argument("--min-distinct", type=int, default=2, dest="min_distinct")
     mine.add_argument("--no-dedup", action="store_false", dest="dedup", default=True)
+
+    submit = sub.add_parser("submit", help="package local telemetry (hash-only tier) into an "
+                                           "offline submission tarball — nothing is uploaded")
+    submit.add_argument("--from", dest="from_date", default=None, metavar="YYYY-MM-DD",
+                        help="start day (default: --to day only)")
+    submit.add_argument("--to", dest="to_date", default=None, metavar="YYYY-MM-DD",
+                        help="end day (default: today)")
+    submit.add_argument("--out", default=".", help="output directory (default: current)")
+    submit.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     return parser
 
 
@@ -112,6 +121,9 @@ def main(argv=None) -> int:
     if args.command == "mine":
         from . import mine
         return mine.run(args)
+    if args.command == "submit":
+        from . import submit
+        return submit.run(args)
     return 2
 
 

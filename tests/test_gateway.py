@@ -160,6 +160,9 @@ async def test_anthropic_stream_usage_normalized(gateway):
     assert native["cached_tokens"] == 40
     assert native["cache_creation_tokens"] == 10
     assert row["cost"]["observed_flags"]["cached_tokens"] is True
+    # end-to-end dollar check at claude-cache list prices: creation billed exactly once
+    # (50 uncached * 3.00 + 40 cached * 0.30 + 10 creation * 3.75 + 7 out * 15.00) / 1M
+    assert abs(row["cost"]["list_cost_usd"] - 0.0003045) < 1e-9
 
 
 async def test_transparent_mode_pure_pipe(backend, tmp_path, registries):
@@ -268,6 +271,14 @@ async def test_completions_calls_do_not_poison_sessions(gateway):
     assert row1["usage"]["prompt_tokens"] == 5  # completions call still ledgered
     assert row1["session"] != row2["session"]  # no chaining onto an empty canonical
     assert row2["prefix_stable_ratio"] is None  # first call of its own session
+
+
+async def test_completions_distinct_prompts_get_distinct_sessions(gateway):
+    client, config, _ = gateway
+    await client.post("/v1/completions", json={"model": "m", "prompt": "alpha"})
+    await client.post("/v1/completions", json={"model": "m", "prompt": "beta"})
+    row1, row2 = ledger_rows(config)
+    assert row1["session"] != row2["session"]  # no collapse onto hash of '[]'
 
 
 async def test_session_header_sanitized_for_filenames(gateway):

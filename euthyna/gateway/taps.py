@@ -58,12 +58,15 @@ class PrefixMonitor:
     def __init__(self) -> None:
         self._last: "OrderedDict[str, str]" = OrderedDict()
 
-    def observe(self, messages, session: Optional[str]) -> tuple[str, Optional[float]]:
+    def observe(self, messages, session: Optional[str],
+                seed: Optional[str] = None) -> tuple[str, Optional[float]]:
         canonical = _canonical(messages)
         if not messages:
             # No messages (e.g. /v1/completions uses `prompt`): nothing to chain or
             # compare. Storing '[]' would make every later call chain onto it.
-            return session or "auto-" + _sha(canonical.encode())[:10], None
+            # Hash the caller-provided seed (the prompt) rather than the constant
+            # '[]', so unrelated completions calls don't collapse into one session.
+            return session or "auto-" + _sha((seed or canonical).encode())[:10], None
         if session is None:
             session = self._chain(canonical)
         prev = self._last.get(session)
@@ -180,7 +183,9 @@ class Taps:
         messages = request_json.get("messages") or []
         if session_header is not None:
             session_header = _safe_session(session_header)
-        session, ratio = self.prefix.observe(messages, session_header)
+        prompt = request_json.get("prompt")
+        seed = _canonical(prompt) if prompt is not None else None
+        session, ratio = self.prefix.observe(messages, session_header, seed=seed)
         usage, model = extract_usage(dialect, response_json, response_sse)
         model = model or request_json.get("model")
 
