@@ -83,6 +83,38 @@ def test_example_profiles_load_and_register(registries):
         profile.register()  # syntactically valid: registers without error
 
 
+def test_legacy_row_without_cost_quality_is_not_claimed_exact():
+    """Rows written before 0.1.1 carry no cost_quality field. Deriving it from the cost
+    row must not default to 'exact' when a priced cache category was unobservable —
+    that would re-introduce the unknown-as-certainty bug at the aggregation layer."""
+    legacy = {"session": "s1", "usage": {"prompt_tokens": 1000, "completion_tokens": 100},
+              "cost": {"native_tokens": {"prompt_tokens": 1000, "completion_tokens": 100,
+                                         "cached_tokens": 0},
+                       "observed_flags": {"cached_tokens": False, "cache_creation_tokens": False},
+                       "imputed_flags": {"cached_tokens": False},
+                       "list_price_per_1m": {"input_per_1m": 1.25, "cached_input_per_1m": 0.125,
+                                             "output_per_1m": 10.0},
+                       "list_cost_usd": 2.25}}
+    s = aggregate([legacy])["s1"]
+    assert s["cost_quality"]["estimated"] == 1
+    assert s["cost_quality"]["exact"] == 0
+    assert s["cached_tokens"] is None  # unknown, not 0
+
+
+def test_legacy_row_free_backend_is_exact():
+    """Same shape but with cache priced identically to input (a $0 local backend):
+    not knowing the cache split cannot change the bill, so 'exact' is honest."""
+    row = {"session": "s1", "usage": {"prompt_tokens": 100, "completion_tokens": 10},
+           "cost": {"native_tokens": {"prompt_tokens": 100, "completion_tokens": 10,
+                                      "cached_tokens": 0},
+                    "observed_flags": {"cached_tokens": False, "cache_creation_tokens": False},
+                    "imputed_flags": {"cached_tokens": False},
+                    "list_price_per_1m": {"input_per_1m": 0.0, "cached_input_per_1m": 0.0,
+                                          "output_per_1m": 0.0},
+                    "list_cost_usd": 0.0}}
+    assert aggregate([row])["s1"]["cost_quality"]["exact"] == 1
+
+
 def test_report_aggregate_anthropic_row_without_cost():
     rows = [{"session": "a1",
              "usage": {"input_tokens": 50, "cache_read_input_tokens": 40,

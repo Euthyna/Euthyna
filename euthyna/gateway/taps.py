@@ -16,6 +16,7 @@ from collections import OrderedDict
 from typing import Optional
 
 from euthyna.core.accountant import cost_row_from_usage
+from euthyna.ledger import cache_status, cost_quality
 
 from .config import GatewayConfig
 
@@ -155,32 +156,6 @@ def normalize_anthropic_usage(usage: dict) -> dict:
     if details:
         out["prompt_tokens_details"] = details
     return out
-
-
-def cache_status(cost: dict) -> str:
-    """Three-state cache observability for a cost row: observed / imputed_zero /
-    unavailable. Derived from the accountant's flags at the ledger boundary so the
-    ported core stays untouched; 'unavailable' must render as unknown (never 0)
-    downstream."""
-    if cost["observed_flags"]["cached_tokens"]:
-        return "observed"
-    if cost["imputed_flags"]["cached_tokens"]:
-        return "imputed_zero"
-    return "unavailable"
-
-
-def cost_quality(cost: dict) -> str:
-    """exact — every category that can move the bill was observed;
-    estimated_under_no_cache_assumption — a cache category is unobservable AND its
-    rate differs from the input rate, so the true bill may be lower."""
-    prices = cost.get("list_price_per_1m") or {}
-    input_rate = prices.get("input_per_1m")
-    for cat, rate_key in (("cached_tokens", "cached_input_per_1m"),
-                          ("cache_creation_tokens", "cache_creation_per_1m")):
-        rate = prices.get(rate_key)
-        if not cost["observed_flags"][cat] and rate is not None and rate != input_rate:
-            return "estimated_under_no_cache_assumption"
-    return "exact"
 
 
 class Taps:

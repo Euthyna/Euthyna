@@ -45,10 +45,9 @@ def _tokens(row: dict) -> tuple[int, int]:
     return prompt or 0, completion or 0
 
 
-def _row_cache_status(cost: dict) -> str:
-    """Three-state cache observability; derives from flags for pre-0.1.1 rows."""
-    if "cache_status" in cost:
-        return cost["cache_status"]
+def cache_status(cost: dict) -> str:
+    """Three-state cache observability for a cost row: observed / imputed_zero /
+    unavailable. 'unavailable' must render as unknown downstream, never as 0."""
     observed = cost.get("observed_flags") or {}
     imputed = cost.get("imputed_flags") or {}
     if observed.get("cached_tokens"):
@@ -56,8 +55,35 @@ def _row_cache_status(cost: dict) -> str:
     if imputed.get("cached_tokens"):
         return "imputed_zero"
     if "observed_flags" not in cost:
-        return "observed"  # legacy/synthetic rows without flags: trust the value
+        return "observed"  # synthetic rows without flags: trust the value as given
     return "unavailable"
+
+
+def cost_quality(cost: dict) -> str:
+    """exact — every category that can move the bill was observed;
+    estimated_under_no_cache_assumption — a cache category is unobservable AND its
+    rate differs from the input rate, so the true bill may be lower."""
+    prices = cost.get("list_price_per_1m") or {}
+    input_rate = prices.get("input_per_1m")
+    observed = cost.get("observed_flags") or {}
+    for cat, rate_key in (("cached_tokens", "cached_input_per_1m"),
+                          ("cache_creation_tokens", "cache_creation_per_1m")):
+        rate = prices.get(rate_key)
+        if not observed.get(cat) and rate is not None and rate != input_rate:
+            return "estimated_under_no_cache_assumption"
+    return "exact"
+
+
+def _row_cache_status(cost: dict) -> str:
+    return cost.get("cache_status") or cache_status(cost)
+
+
+def _row_cost_quality(row: dict, cost: dict | None) -> str:
+    """Rows written before 0.1.1 carry no cost_quality — derive it from the cost row
+    rather than assuming 'exact' (the same unknown-as-certainty bug as cache_status)."""
+    if row.get("cost_quality"):
+        return row["cost_quality"]
+    return cost_quality(cost) if cost else "unavailable"
 
 
 def aggregate(rows: list[dict]) -> dict:
@@ -89,7 +115,7 @@ def aggregate(rows: list[dict]) -> dict:
                 s["cache_known_calls"] += 1
                 s["cache_known_prompt"] += prompt
             s["cost_usd"] += cost.get("list_cost_usd") or 0.0
-        quality = row.get("cost_quality") or ("exact" if cost else "unavailable")
+        quality = _row_cost_quality(row, cost)
         key = "estimated" if quality.startswith("estimated") else quality
         s["cost_quality"][key] = s["cost_quality"].get(key, 0) + 1
         if row.get("prefix_stable_ratio") is not None:
