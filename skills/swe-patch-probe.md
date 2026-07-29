@@ -4,6 +4,11 @@ description: Apply a candidate edit, re-run the reproducer, revert if nothing ch
 signature: [bash:echo, bash:sed, bash:sed, bash:echo, bash:sed, bash:echo]
 steps_replaced: 6
 measured_body_tokens: 204   # observed on the wire, 3 sessions; chars/4 estimated 156
+# Observed in the cost-primary experiment (docs/examples/cost-primary/): median calls per
+# run was 7 for every arm including this one, so it shortened nothing. The 6 above is what
+# mini-SWE-agent's traces showed; this is what opencode's showed.
+measured_steps_replaced: 0
+measured_in: cost-primary/opencode+qwen3-8b, 14 runs
 preconditions:
   - a reproducer command exists and has been run at least once
   - the target file is known

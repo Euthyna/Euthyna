@@ -70,22 +70,41 @@ def test_registry_never_presents_more_than_the_cap():
     assert hits[0].steps_replaced > hits[-1].steps_replaced  # best-first
 
 
-def test_shipped_skills_load_and_stay_within_gates():
+def test_shipped_skills_load_and_cite_their_provenance():
     reg = SkillRegistry.load(SKILLS_DIR)
     assert len(reg.skills) >= 3
-    assert reg.gate_failures() == []
     for s in reg.skills:
         assert s.source, f"{s.name} must cite the corpus it was mined from"
+        assert s.harness, f"{s.name} must record the vocabulary its signature speaks"
         assert s.body_tokens <= GATES["max_body_tokens"]
 
 
+def test_the_only_gate_failure_is_the_one_we_measured():
+    """`swe-patch-probe` fails the amortization gate, and it is supposed to.
+
+    It was measured replacing 0 steps in the cost-primary run. A gate that stayed clean
+    after that measurement would be a gate that ignores measurements.
+    """
+    reg = SkillRegistry.load(SKILLS_DIR)
+    failures = reg.gate_failures()
+    assert len(failures) == 1
+    assert failures[0].startswith("swe-patch-probe: measured to replace 0 steps")
+
+
 def test_shipped_skills_verdicts_are_derived_not_declared():
-    """The most-repeated ritual in the corpus is a one-step one, and it must come out
-    CANNOT_PAY — frequency is not value."""
+    """Frequency is not value, and neither is a step count inherited from another corpus.
+
+    `swe-submit` is the most-repeated ritual in the mined corpus and still CANNOT_PAY.
+    `swe-patch-probe` declares 6 steps replaced — enough to PAY on that number alone —
+    and comes out CANNOT_PAY because it was measured replacing none.
+    """
     reg = SkillRegistry.load(SKILLS_DIR)
     by_name = {r["name"]: r for r in reg.report(step_cost_tok_eq=7660)}
     assert by_name["swe-submit"]["verdict"] == "CANNOT_PAY"
-    assert by_name["swe-patch-probe"]["verdict"] == "PAYS"
+    probe = by_name["swe-patch-probe"]
+    assert probe["steps_declared"] == 6 and probe["steps_measured"] == 0
+    assert probe["steps_basis"] == "measured"
+    assert probe["verdict"] == "CANNOT_PAY"
 
 
 def test_front_matter_is_required(tmp_path):
@@ -156,3 +175,43 @@ def test_harness_provenance_round_trips_from_front_matter():
     s = load_skill("skills/swe-patch-probe.md")
     assert s.harness == "mini-swe-agent"
     assert s.vocabulary == {"bash:echo", "bash:sed"}
+
+
+def test_a_measurement_overrides_the_corpus_claim_and_flips_the_verdict():
+    """The whole point: PAYS on an inherited number, CANNOT_PAY on a measured one."""
+    from euthyna.skills.registry import Skill
+    body = "x" * 800   # ~262 tok under the corrected estimator
+    declared = Skill(name="s", signature=["a"], steps_replaced=6, body=body)
+    measured = Skill(name="s", signature=["a"], steps_replaced=6, body=body,
+                     measured_steps_replaced=0, measured_in="cost-primary")
+    assert declared.economics(8000).verdict == "PAYS"
+    assert measured.economics(8000).verdict == "CANNOT_PAY"
+    assert declared.effective_steps_replaced == 6
+    assert measured.effective_steps_replaced == 0
+
+
+def test_zero_measured_steps_is_honoured_not_treated_as_missing():
+    """`or`-style precedence would read a measured 0 as absent and fall back to 6."""
+    from euthyna.skills.registry import Skill
+    s = Skill(name="s", signature=["a"], steps_replaced=6, body="b",
+              measured_steps_replaced=0)
+    assert s.effective_steps_replaced == 0
+    assert s.steps_are_measured is True
+
+
+def test_gate_message_names_its_basis_and_workload():
+    from euthyna.skills.registry import Skill
+    s = Skill(name="s", signature=["a"], steps_replaced=6, body="b",
+              measured_steps_replaced=0, measured_in="cost-primary/opencode")
+    failures = s.gate_failures()
+    assert any("measured to replace 0 steps in cost-primary/opencode" in f for f in failures)
+    d = Skill(name="s", signature=["a"], steps_replaced=0, body="b")
+    assert any(f.startswith("declared to replace 0 steps —") for f in d.gate_failures())
+
+
+def test_patch_probe_carries_its_measurement_on_disk():
+    from euthyna.skills.registry import load_skill
+    s = load_skill("skills/swe-patch-probe.md")
+    assert s.steps_replaced == 6 and s.measured_steps_replaced == 0
+    assert "opencode" in s.measured_in
+    assert s.economics(8000).verdict == "CANNOT_PAY"

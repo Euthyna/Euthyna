@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- **`measured_steps_replaced` / `measured_in`** on a skill, with the same precedence rule
+  as `measured_body_tokens`: measured beats declared. `steps_replaced` is inherited from
+  the corpus a skill was mined from and travels with the file, so the economics gate would
+  return PAYS on a number that was never true of the workload in front of it.
+  `swe-patch-probe` declares 6 and now carries a measured **0** from the cost-primary run
+  — its verdict moves PAYS → CANNOT_PAY, and the gate message names both the basis and the
+  workload. A measured zero is honoured rather than read as absent.
 - **`actions` on every ledger row** — the tool calls a step actually made, in order.
   `_tool_names` records the tools a request *offered*, which is what prefix-mutation
   detection needs; this records the ones the model *invoked*, which is what a flow is

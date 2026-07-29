@@ -57,6 +57,12 @@ class Skill:
     source: str = ""                     # corpus/evidence the distillation came from
     harness: str = ""                    # harness whose action vocabulary the signature speaks
     measured_body_tokens: Optional[int] = None   # observed on the wire, beats any estimate
+    # Steps this skill was observed to replace in the workload it is DEPLOYED into, which
+    # is not what `steps_replaced` says. That number is inherited from the corpus the
+    # skill was mined from and travels with the file; this one has to be earned per
+    # workload. Same precedence rule as measured_body_tokens: measured always wins.
+    measured_steps_replaced: Optional[int] = None
+    measured_in: str = ""                # workload the measurement above was taken in
     path: Optional[Path] = None
 
     @property
@@ -74,10 +80,27 @@ class Skill:
     def tokens_are_measured(self) -> bool:
         return self.measured_body_tokens is not None
 
+    @property
+    def effective_steps_replaced(self) -> int:
+        """What this skill actually saves here, not what its corpus said it saved there.
+
+        A skill mined from one harness carries its step count with it, and the economics
+        gate will happily return PAYS on a number that was never true of the workload in
+        front of it. `swe-patch-probe` declares 6 and replaced 0 in the cost-primary run —
+        the flow it keys on never occurred (RFC-002 §10.6).
+        """
+        if self.measured_steps_replaced is not None:
+            return self.measured_steps_replaced
+        return self.steps_replaced
+
+    @property
+    def steps_are_measured(self) -> bool:
+        return self.measured_steps_replaced is not None
+
     def economics(self, step_cost_tok_eq: Optional[float],
                   remaining_turns: int = 40) -> Economics:
-        return Economics(self.body_tokens, self.steps_replaced, step_cost_tok_eq,
-                         remaining_turns)
+        return Economics(self.body_tokens, self.effective_steps_replaced,
+                         step_cost_tok_eq, remaining_turns)
 
     def gate_failures(self) -> list:
         """Every gate this skill violates, with the measured basis for each."""
@@ -85,8 +108,11 @@ class Skill:
         if self.body_tokens > GATES["max_body_tokens"]:
             out.append(f"body {self.body_tokens} tok > {GATES['max_body_tokens']} "
                        "(break-even rises past anything observed)")
-        if self.steps_replaced < GATES["min_steps_replaced"]:
-            out.append(f"replaces {self.steps_replaced} steps — nothing to amortize")
+        n = self.effective_steps_replaced
+        if n < GATES["min_steps_replaced"]:
+            where = f" in {self.measured_in}" if self.measured_in else ""
+            basis = "measured" if self.steps_are_measured else "declared"
+            out.append(f"{basis} to replace {n} steps{where} — nothing to amortize")
         if not self.signature:
             out.append("no trigger signature — nothing to key on")
         return out
@@ -115,6 +141,8 @@ def load_skill(path) -> Skill:
         source=meta.get("source", ""),
         harness=meta.get("harness", ""),
         measured_body_tokens=meta.get("measured_body_tokens"),
+        measured_steps_replaced=meta.get("measured_steps_replaced"),
+        measured_in=meta.get("measured_in", ""),
         path=path,
     )
 
@@ -194,7 +222,12 @@ class SkillRegistry:
         for s in self.skills:
             e = s.economics(step_cost_tok_eq, remaining_turns)
             rows.append({"name": s.name, "signature": s.signature,
-                         "source": s.source, "tokens_measured": s.tokens_are_measured,
+                         "source": s.source, "harness": s.harness,
+                         "tokens_measured": s.tokens_are_measured,
+                         "steps_declared": s.steps_replaced,
+                         "steps_measured": s.measured_steps_replaced,
+                         "steps_basis": "measured" if s.steps_are_measured else "declared",
+                         "measured_in": s.measured_in,
                          **e.as_dict(), "gate_failures": s.gate_failures()})
         return rows
 

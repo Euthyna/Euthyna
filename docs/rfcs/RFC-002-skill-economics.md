@@ -288,7 +288,42 @@ paired harness can produce. **Building the instrument first costs no optionality
    hold-cost arithmetic, but if useful skills cannot be written that small, the whole
    design changes.
 2. Is signature keying too brittle? It buys exactness and cheap runtime at the cost of
-   generalisation to flows that differ superficially.
-3. Should the abandon criterion in §5 be stricter — for example, requiring the
+   generalisation to flows that differ superficially. **Measured, and worse than
+   brittle:** a signature is a sequence of action names, so it can only match a harness
+   that emits those names. All three skills in this repository were mined from
+   mini-SWE-agent, whose single tool makes every action `bash:*`; against opencode's
+   observed vocabulary (`read`, `glob`, `edit`, `bash:python`) the intersection is empty
+   and all three are inert at every prefix of every trajectory. `match()` cannot report
+   this, because never-matching is indistinguishable from not-yet-matching.
+   `SkillRegistry.dead_triggers` now names them. The open question is what replaces exact
+   suffix matching: a per-harness action alphabet with a translation layer, or abandoning
+   cross-harness portability and mining separately per harness.
+3. **The cost endpoint and the intervention want opposite workloads, and this has no
+   clean resolution.** §5.1 requires tasks the baseline solves reliably, because a failed
+   run's cost is not comparable to a solved run's. But a skill that saves work saves it
+   precisely where the agent would otherwise flounder — in the cost-primary run, 49 of 56
+   runs took 7–8 calls and were solved first try, so `swe-patch-probe` had nothing to
+   amortise and cost 6% more for nothing. Measuring on harder tasks restores the
+   opportunity and destroys the endpoint: outcomes stop being held constant and the
+   binary endpoint needs ~650 pairs. Three options, none satisfying:
+   (a) stratify — calibrate solve rate per task and measure cost only within the band
+   where it is high *and* trajectories are long, which may be empty;
+   (b) change the endpoint to cost **conditional on success**, accepting that it says
+   nothing about the runs that failed;
+   (c) accept that skills addressing failure modes cannot be evaluated on cost at all,
+   and evaluate them on variance or worst-case instead — the tail is where a 27.5×
+   waste run lives, and a mean or median cannot see it.
+   The tail argument is attractive and the A/A arm already refutes the naive version of
+   it: candidate's worst run was 12 calls against control's 16, which looks like the
+   skill tightening the tail until you notice `aa_sham` — the same treatment as control —
+   had a worst run of 8. At n = 14 the tail is noise. Any tail-based endpoint needs its
+   own power analysis before it is used, not after.
+4. Should the abandon criterion in §5 be stricter — for example, requiring the
    candidate to beat raw-trajectory retrieval by a margin rather than merely tie?
-4. Which harnesses should the delivery measurement in §7 cover first?
+5. Which harnesses should the delivery measurement in §7 cover first?
+6. `steps_replaced` is declared in a skill's front matter and inherited from the corpus
+   it was mined from, and the economics gate returns PAYS on that number alone.
+   `swe-patch-probe` declares 6, mined from mini-SWE-agent; in the cost-primary workload
+   it replaced **zero**, because the flow it keys on never occurred. Should a skill be
+   presentable at all before its step replacement has been measured in the workload it is
+   deployed into — i.e. should UNPRICED be a hard gate rather than a verdict?
