@@ -18,8 +18,8 @@ import json
 import yaml
 
 from euthyna.experiment import (
-    ExperimentSpec, analyze, build_plan, load_outcomes, plan_summary,
-    required_pairs, session_costs,
+    ExperimentSpec, analyze, build_plan, calibrate, load_outcomes, plan_summary,
+    required_pairs, schedule, session_costs,
 )
 
 
@@ -106,5 +106,45 @@ def _analyze(args) -> int:
     return 0
 
 
+def _calibrate(args) -> int:
+    cals = calibrate(load_outcomes(args.outcomes), baseline_arm=args.baseline,
+                     candidate_arm=args.candidate, target_pairs=args.target_pairs)
+    plan = schedule(cals, target_pairs=args.target_pairs)
+    if args.json:
+        print(json.dumps({"tasks": [c.as_dict() for c in cals], "schedule": plan},
+                         indent=2))
+        return 0
+    if not cals:
+        print(f"no runs for baseline arm {args.baseline!r} in {args.outcomes}")
+        return 1
+    print(f"cost-experiment calibration — baseline arm: {args.baseline}\n")
+    header = (f"{'task':<22} {'solved':>8} {'rate':>6} {'95% lo':>7} {'yield':>6} "
+              f"{'sched':>6}  verdict")
+    print(header)
+    print("-" * len(header))
+    for c in cals:
+        d = c.as_dict()
+        sched = d["pairs_to_schedule"] or "—"
+        print(f"{c.task[:22]:<22} {c.baseline_solved:>3}/{c.baseline_runs:<4} "
+              f"{d['baseline_rate']:>6.2f} {d['baseline_lower_95']:>7.2f} "
+              f"{d['yield_rate']:>6.2f} {sched:>6}  {d['verdict']}")
+    print("-" * len(header))
+    print("a task the baseline never solves has nothing to hold constant, so there is "
+          "no cost question to ask of it")
+    print("95% lo is the exact one-sided Clopper-Pearson bound: 3/3 clean runs only "
+          "rule out a solve rate below 0.37")
+    if plan.get("total_runs"):
+        print(f"\nto get {args.target_pairs} usable pairs: {plan['eligible_tasks']} "
+              f"tasks x {plan['pairs_per_task']} pairs, {plan['scheduled_pairs']} pairs "
+              f"scheduled after yield loss = {plan['total_runs']} runs")
+    else:
+        print(f"\n{plan['note']}")
+    return 0
+
+
 def run(args) -> int:
-    return _plan(args) if args.experiment_command == "plan" else _analyze(args)
+    if args.experiment_command == "plan":
+        return _plan(args)
+    if args.experiment_command == "calibrate":
+        return _calibrate(args)
+    return _analyze(args)
