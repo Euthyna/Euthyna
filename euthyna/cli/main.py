@@ -67,6 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     submit.add_argument("--include-model-names", action="store_true",
                         help="keep raw model names (default: pseudonymized hashes)")
+
+    skills = sub.add_parser("skills", help="inspect the signature-keyed skill registry "
+                                           "and price each entry against your step cost")
+    skills.add_argument("--dir", default="skills", help="skill directory (default: %(default)s)")
+    skills.add_argument("--step-cost", type=float, default=None, metavar="TOK_EQ",
+                        help="override the step cost instead of measuring it from the ledger")
+    skills.add_argument("--turns", type=int, default=40, metavar="N",
+                        help="session horizon used for hold cost (default: %(default)s)")
+    skills.add_argument("--date", default=None, help="ledger day to measure step cost from")
+    skills.add_argument("--json", action="store_true")
     return parser
 
 
@@ -108,6 +118,9 @@ def main(argv=None) -> int:
     if args.command == "submit":
         from . import submit
         return submit.run(args)
+    if args.command == "skills":
+        from . import skills
+        return skills.run(args)
     return 2
 
 
