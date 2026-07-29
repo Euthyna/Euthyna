@@ -75,6 +75,25 @@ def cost_quality(cost: dict) -> str:
     return "exact"
 
 
+def step_cost_quality(cost: dict) -> str:
+    """Quality of the *token-equivalent* step cost, which is not the quality of the bill.
+
+    ``cost_quality`` asks whether the USD total is certain, so it clears a row whose
+    cache rates equal its input rate — for a local model priced at zero, every rate is
+    equal and the dollar bill is exactly zero however the prompt was cached. That says
+    nothing about ``step_cost``, which weights uncached at 1.0 against cached at 0.10 no
+    matter what the money says. A row can therefore be an exact $0 and a 10x-uncertain
+    step.
+
+    So this asks the only question the weights care about: was the cache split observed?
+    If not, ``step_cost`` counts the whole prompt as uncached, which is an upper bound
+    rather than a measurement.
+    """
+    if cache_status(cost) == "observed":
+        return "exact"
+    return "estimated_under_no_cache_assumption"
+
+
 # Effective-cost weights. The first three extend the frozen H1 estimand
 # (w_uncached, w_cached, w_output) = (1.0, 0.1, 5.0) with the cache-write line the
 # original study's route never exposed. Euthyna only APPLIES weights, never chooses

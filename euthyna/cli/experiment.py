@@ -19,7 +19,7 @@ import yaml
 
 from euthyna.experiment import (
     ExperimentSpec, analyze, build_plan, calibrate, load_outcomes, plan_summary,
-    required_pairs, schedule, session_costs, window_costs,
+    cost_basis, required_pairs, schedule, session_costs, window_costs,
 )
 
 
@@ -100,10 +100,22 @@ def _analyze(args) -> int:
             md = f"{r['median_delta']:+,.0f}" if r["median_delta"] is not None else "—"
             rel = f"{r['relative_delta']:+.1%}" if r["relative_delta"] is not None else "—"
             p = f"{r['p_value']:.3f}" if r["p_value"] is not None else "—"
-            print(f"{r['arm_b'][:18]:<18} {r['pairs']:>6} {r['dropped_discordant']:>8} "
+            mark = "*" if r.get("skewed") else " "
+            print(f"{r['arm_b'][:17]:<17}{mark} {r['pairs']:>6} {r['dropped_discordant']:>8} "
                   f"{md:>10} {rel:>7} {p:>7} {r['resolve_guard']:>9}  {r['verdict']}")
         print("cost is compared only where BOTH arms solved the task; discordant pairs "
               "are dropped, not averaged in")
+        if getattr(args, "window_costs", False):
+            mix = cost_basis(outcomes, dates)
+            est = mix.get("estimated_under_no_cache_assumption", 0)
+            tot = sum(mix.values())
+            if est:
+                print(f"cost basis: {est} of {tot} calls priced under a NO-CACHE "
+                      "assumption — this backend never reports a cache split, so every "
+                      "step cost above is an upper bound, not a measurement")
+        if any(r.get("skewed") for r in result["cost_primary"]):
+            print("* marked rows: the per-pair median and the total disagree in sign — "
+                  "the spread is skewed and the verdict follows the median")
 
     priced = {a: v for a, v in result["cost_per_solve"].items() if v["priced"]}
     if priced:

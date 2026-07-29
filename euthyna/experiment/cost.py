@@ -97,6 +97,20 @@ class CostResult:
     n_tasks: int = 0
 
     @property
+    def skewed(self) -> bool:
+        """Do the per-pair median and the total-weighted change point opposite ways?
+
+        `median_delta` is the middle pair; `relative_delta` is the sum over the sum. One
+        pair costing far less than the rest can drag the total negative while most pairs
+        got more expensive. When they disagree the distribution is skewed and the median
+        is the one to trust — which is why the verdict reads it, not the total.
+        """
+        if self.median_delta is None or self.relative_delta is None:
+            return False
+        return (self.median_delta > 0) != (self.relative_delta > 0) and \
+            self.median_delta != 0 and self.relative_delta != 0
+
+    @property
     def resolve_guard(self) -> str:
         """A cost win is only a win if quality did not fall with it."""
         if self.resolve_b > self.resolve_a:
@@ -122,6 +136,7 @@ class CostResult:
             "relative_delta": self.relative_delta, "p_value": self.p_value,
             "resolve_a": self.resolve_a, "resolve_b": self.resolve_b,
             "n_tasks": self.n_tasks, "resolve_guard": self.resolve_guard,
+            "skewed": self.skewed,
             "verdict": self.verdict(),
         }
 

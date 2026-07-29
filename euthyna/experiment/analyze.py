@@ -16,7 +16,7 @@ from typing import Optional
 
 import datetime as _dt
 
-from euthyna.ledger import aggregate, load_rows, step_cost
+from euthyna.ledger import aggregate, load_rows, step_cost, step_cost_quality
 
 from .cost import compare_cost, cost_of
 from .plan import RAW_ARM, SHAM_ARM
@@ -77,6 +77,31 @@ def window_costs(outcomes: list, dates: list) -> dict:
             continue
         out[rid] = sum(c for ts, c in calls if t0 <= ts <= t1 and c is not None)
     return out
+
+
+def cost_basis(outcomes: list, dates: list) -> dict:
+    """How much of the attributed cost is measured versus assumed.
+
+    Every step cost in a comparison is only as good as the cache split behind it, and a
+    backend that never reports one turns the whole prompt into an upper bound. Reporting
+    the mix is the difference between a cost result and a cost claim.
+    """
+    windows = [(r["started_at"], r["ended_at"]) for r in outcomes
+               if r.get("started_at") is not None and r.get("ended_at") is not None]
+    mix: dict = {}
+    for date in dates:
+        for r in load_rows(date):
+            ts = r.get("ts")
+            if isinstance(ts, str):
+                try:
+                    ts = _dt.datetime.fromisoformat(ts).timestamp()
+                except ValueError:
+                    continue
+            if ts is None or not any(t0 <= ts <= t1 for t0, t1 in windows):
+                continue
+            q = step_cost_quality(r.get("cost") or {})
+            mix[q] = mix.get(q, 0) + 1
+    return mix
 
 
 def compare(outcomes: list, arm_a: str, arm_b: str,

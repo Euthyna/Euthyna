@@ -3,6 +3,23 @@
 ## [Unreleased]
 
 ### Added
+- **`step_cost_quality`** — the quality of a token-equivalent step cost is not the
+  quality of the bill. `cost_quality` clears a row whose cache rates equal its input
+  rate, which for a local model priced at zero is every row: the dollar total is exactly
+  $0 however the prompt was cached. `step_cost` weights uncached at 1.0 against cached at
+  0.10 regardless, so a row can be an exact $0 and a 10x-uncertain step. Surfaced by
+  `euthyna experiment analyze --window-costs`, which now reports how many calls were
+  priced under a no-cache assumption instead of leaving it implicit.
+- **`euthyna experiment calibrate`** — which tasks a cost experiment can be run on, with
+  exact one-sided Clopper-Pearson bounds beside every point estimate, because 3/3 clean
+  runs only rule out a solve rate below 0.37.
+- **`baseline_check`** on every `analyze` result — refuses to be read silently when the
+  control arm solves nothing (no cost comparison is possible) or everything (binary
+  endpoint saturated, which is the regime a cost experiment wants).
+- **`window_costs`** — cost attributed by each run's `[started_at, ended_at]` rather than
+  by session id, since one agent invocation can open more than one upstream session.
+- **Skew flag** on cost rows where the per-pair median and the total disagree in sign;
+  the verdict follows the median.
 - **Cost-primary analysis** — `compare_cost`, Wilcoxon signed-rank, surfaced by
   `euthyna experiment analyze`. On tasks the baseline already solves, the interesting
   question is not whether it worked but what it cost, and that endpoint is a paired
