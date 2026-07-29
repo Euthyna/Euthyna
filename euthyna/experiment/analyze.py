@@ -16,6 +16,7 @@ from typing import Optional
 
 from euthyna.ledger import aggregate, load_rows
 
+from .cost import compare_cost
 from .plan import RAW_ARM, SHAM_ARM
 from .stats import PairedResult, mcnemar_exact
 
@@ -114,6 +115,8 @@ def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
     return {
         "control": control,
         "cost_per_solve": cost_per_solve(outcomes, costs),
+        "cost_primary": [compare_cost(outcomes, control, a, costs).as_dict()
+                         for a in arms if a != SHAM_ARM] if costs else [],
         "floor": ({**floor.as_dict(), "verdict": floor.verdict()} if floor else None),
         "results": results,
         "raw_baseline_present": RAW_ARM in arms,

@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Cost-primary analysis** — `compare_cost`, Wilcoxon signed-rank, surfaced by
+  `euthyna experiment analyze`. On tasks the baseline already solves, the interesting
+  question is not whether it worked but what it cost, and that endpoint is a paired
+  continuous magnitude rather than one bit per run: **13 paired runs for 80% power
+  against 650 for the binary endpoint**, fifty times cheaper. Cost is compared only on
+  pairs both arms solved — discordant pairs are dropped and counted, never averaged —
+  and resolve rate rides along as a non-inferiority guard, so a cost win with a quality
+  regression reports `QUALITY_REGRESSED` whatever its p-value. RFC-002 §5.1.
 - **Cost per solved task** in `euthyna experiment analyze`. A cheap failure is not
   cheap — its tokens bought nothing and the task still has to be done — so comparing
   per-run cost across arms with different outcomes flatters whichever arm gives up

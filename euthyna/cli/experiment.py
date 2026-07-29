@@ -78,6 +78,20 @@ def _analyze(args) -> int:
               "arm at or below this is noise whatever its p-value")
     else:
         print("! no A/A sham arm in the outcomes: every verdict here is unfloored")
+    if result.get("cost_primary"):
+        print(f"\n{'arm':<18} {'pairs':>6} {'dropped':>8} {'Δmedian':>10} {'Δrel':>7} "
+              f"{'p':>7} {'quality':>9}  verdict")
+        for r in result["cost_primary"]:
+            if not r["pairs"] and not r["dropped_discordant"]:
+                continue
+            md = f"{r['median_delta']:+,.0f}" if r["median_delta"] is not None else "—"
+            rel = f"{r['relative_delta']:+.1%}" if r["relative_delta"] is not None else "—"
+            p = f"{r['p_value']:.3f}" if r["p_value"] is not None else "—"
+            print(f"{r['arm_b'][:18]:<18} {r['pairs']:>6} {r['dropped_discordant']:>8} "
+                  f"{md:>10} {rel:>7} {p:>7} {r['resolve_guard']:>9}  {r['verdict']}")
+        print("cost is compared only where BOTH arms solved the task; discordant pairs "
+              "are dropped, not averaged in")
+
     priced = {a: v for a, v in result["cost_per_solve"].items() if v["priced"]}
     if priced:
         print(f"\n{'arm':<18} {'solved':>7} {'tokens':>12} {'per solve':>12}")

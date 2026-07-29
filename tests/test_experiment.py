@@ -145,3 +145,48 @@ def test_cost_per_solve_absent_without_cost_data():
     from euthyna.experiment.analyze import cost_per_solve
     rows = _outcomes({("t1", "control"): True})
     assert cost_per_solve(rows)["control"]["per_solve"] is None
+
+
+def test_wilcoxon_matches_hand_computed_values():
+    from euthyna.experiment import wilcoxon_signed_rank
+    # every pair moves the same way: the most extreme result 6 pairs can give
+    assert wilcoxon_signed_rank([-3, -5, -2, -9, -4, -7]) == pytest.approx(2 / 64)
+    # symmetric differences carry no evidence
+    assert wilcoxon_signed_rank([1, -1, 2, -2]) == 1.0
+    # all ties: absence of evidence, not p=1
+    assert wilcoxon_signed_rank([0, 0, 0]) is None
+
+
+def test_cost_is_compared_only_where_both_arms_solved():
+    """A run that failed cheaply saved nothing; its cost is not comparable."""
+    from euthyna.experiment import compare_cost
+    rows = _outcomes({
+        ("t1", "control"): True, ("t1", "cand"): True,     # comparable
+        ("t2", "control"): True, ("t2", "cand"): True,     # comparable
+        ("t3", "control"): False, ("t3", "cand"): True,    # dropped
+    })
+    costs = {"t1-control": 10_000.0, "t1-cand": 7_000.0,
+             "t2-control": 12_000.0, "t2-cand": 9_000.0,
+             "t3-control": 500.0, "t3-cand": 40_000.0}
+    r = compare_cost(rows, "control", "cand", costs)
+    assert r.pairs == 2 and r.dropped_discordant == 1
+    assert r.median_delta == -3000.0          # the cheap failure does not drag it
+    assert r.relative_delta == pytest.approx(-6000 / 22000, abs=1e-4)
+
+
+def test_quality_regression_overrides_a_cost_win():
+    from euthyna.experiment import compare_cost
+    rows = _outcomes({
+        ("t1", "control"): True, ("t1", "cand"): True,
+        ("t2", "control"): True, ("t2", "cand"): False,   # quality lost
+    })
+    costs = {"t1-control": 10_000.0, "t1-cand": 1_000.0,
+             "t2-control": 10_000.0, "t2-cand": 1_000.0}
+    r = compare_cost(rows, "control", "cand", costs)
+    assert r.resolve_guard == "REGRESSED"
+    assert r.verdict() == "QUALITY_REGRESSED"
+
+
+def test_cost_endpoint_needs_far_fewer_pairs_than_the_binary_one():
+    from euthyna.experiment import required_pairs, required_pairs_cost
+    assert required_pairs_cost() < required_pairs() / 20
