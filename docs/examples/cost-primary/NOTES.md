@@ -89,15 +89,28 @@ establishes only that the flow existed *somewhere*.
 
 - **12 pairs detects d = 0.8, not d = 0.5** (which needs 32). A real saving smaller than
   large would not be visible here.
-- **Every step cost is an upper bound.** All 442 calls were priced under a no-cache
-  assumption: this backend never reports a cache split, so `step_cost` counts the whole
-  prompt as uncached. If the backend does cache internally, the true deltas are smaller
-  than reported — including the candidate's +1,208. Reported by
-  `euthyna experiment analyze --window-costs` rather than left implicit.
-- **This says nothing about RFC-002's hold-cost formula.** `1.25·S + 0.10·S·(R−1)`
-  predicts 377 tok-eq for this body over 7 calls, against 1,208 observed — but that gap
-  is exactly what an unobservable cache split produces, so the formula is *untestable*
-  on this backend, not refuted. Testing it needs a provider that reports cache tokens.
+- **Every step cost here is an upper bound, and the cache it ignores is real.** All 442
+  calls were priced under a no-cache assumption, because this backend never reports a
+  cache split — `step_cost` counts the whole prompt as uncached. That is not merely a
+  theoretical caveat: three identical calls with a 6,599-token prefix ran in **53,741 ms,
+  then 236 ms, then 209 ms** — a **228× drop** — while `prompt_tokens` reported 6,599
+  every time and `prompt_tokens_details` stayed `None`. The repository's own backend probe
+  recorded the same shape on 2026-07-21 at a different prefix size (39,062 → 166 ms).
+  A 228× speedup has no explanation other than the prefix being served from cache.
+  So the cache exists, the usage field denies it, and every delta above is inflated.
+  `euthyna experiment analyze --window-costs` says so rather than leaving it implicit.
+- **RFC-002's hold-cost formula survives this, and may even be vindicated by it.**
+  `1.25·S + 0.10·S·(R−1)` predicts **377** tok-eq for a 204-token body over 7 calls,
+  against **1,208** observed — a 3.2× gap that reads as the formula being wrong. But
+  1,208 ≈ 6 × 204 × 1.0, which is exactly what pricing a *cached* body at the *uncached*
+  weight produces. Price the same body as written once and re-read after that, as the
+  formula does, and the delta falls to `1.25×204 + 5×204×0.10` = **357** — within 6% of
+  the prediction.
+  That arithmetic assumes the stable prefix is fully cached. The latency supports that
+  assumption strongly and **does not quantify it**: a 228× speedup shows most of the
+  prefix was reused, not what fraction. So the true delta lies somewhere in
+  **[357, 1208]**, the formula is not refuted, and pinning it down needs a backend that
+  reports the split rather than a cleverer analysis of one that does not.
 - **Two tasks, both easy, one model.** The eligible set is narrow because at n = 3 the
   yield floor is coarse — achievable yields are 0, 0.11, 0.44, 1.00, so "eligible"
   effectively means "solved 3/3", whose 95% lower bound is only 0.37.
