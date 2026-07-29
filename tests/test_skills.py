@@ -125,3 +125,34 @@ def test_shipped_skill_records_its_measurement():
     probe = next(s for s in reg.skills if s.name == "swe-patch-probe")
     assert probe.tokens_are_measured, "the skill we actually ran must carry its measurement"
     assert probe.body_tokens == 204
+
+
+def test_skills_mined_from_another_harness_can_never_fire():
+    """The defect the cost-primary experiment exposed, now a gate."""
+    from euthyna.skills.registry import SkillRegistry
+    r = SkillRegistry.load("skills")
+    dead = r.dead_triggers(["glob", "read", "edit", "bash"])   # opencode's vocabulary
+    assert len(dead) == len(r.skills) and r.skills, "all three speak bash:* only"
+    assert all(d["harness"] == "mini-swe-agent" for d in dead)
+    assert all("can never fire here" in d["reason"] for d in dead)
+
+
+def test_no_dead_triggers_in_the_harness_they_were_mined_from():
+    from euthyna.skills.registry import SkillRegistry
+    r = SkillRegistry.load("skills")
+    assert r.dead_triggers(["bash:grep", "bash:sed", "bash:echo"]) == []
+
+
+def test_a_skill_with_no_signature_is_not_reported_as_dead():
+    """It fails a different gate — 'no trigger signature' — and should not double-report."""
+    from euthyna.skills.registry import Skill, SkillRegistry
+    s = Skill(name="x", signature=[], steps_replaced=2, body="b")
+    assert SkillRegistry([s]).dead_triggers(["read"]) == []
+    assert any("no trigger signature" in f for f in s.gate_failures())
+
+
+def test_harness_provenance_round_trips_from_front_matter():
+    from euthyna.skills.registry import load_skill
+    s = load_skill("skills/swe-patch-probe.md")
+    assert s.harness == "mini-swe-agent"
+    assert s.vocabulary == {"bash:echo", "bash:sed"}

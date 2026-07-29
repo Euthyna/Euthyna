@@ -55,8 +55,14 @@ class Skill:
     description: str = ""
     preconditions: list = field(default_factory=list)
     source: str = ""                     # corpus/evidence the distillation came from
+    harness: str = ""                    # harness whose action vocabulary the signature speaks
     measured_body_tokens: Optional[int] = None   # observed on the wire, beats any estimate
     path: Optional[Path] = None
+
+    @property
+    def vocabulary(self) -> set:
+        """The action names this skill's trigger is expressed in."""
+        return {str(a) for a in self.signature}
 
     @property
     def body_tokens(self) -> int:
@@ -107,6 +113,7 @@ def load_skill(path) -> Skill:
         description=meta.get("description", ""),
         preconditions=list(meta.get("preconditions") or []),
         source=meta.get("source", ""),
+        harness=meta.get("harness", ""),
         measured_body_tokens=meta.get("measured_body_tokens"),
         path=path,
     )
@@ -143,6 +150,36 @@ class SkillRegistry:
                 hits.append(s)
         # Cap what is ever presented, independent of library size.
         return sorted(hits, key=lambda s: -s.steps_replaced)[:GATES["max_presented_per_task"]]
+
+    def dead_triggers(self, observed_vocabulary) -> list:
+        """Skills whose trigger cannot fire in a harness that emits these actions.
+
+        A signature is a sequence of action names, so it can only match a harness that
+        emits those names. Mine a flow from one harness and deploy it into another and the
+        trigger is dead code: it never matches, at any prefix of any trajectory, and
+        nothing in ``match()`` says so — never-matching is exactly what matching looks
+        like when there is nothing to match.
+
+        This is not hypothetical. The three skills in this repository were distilled from
+        mini-SWE-agent, which has one tool, so they speak ``bash:grep`` / ``bash:sed`` /
+        ``bash:echo``. Run against opencode, which emits ``glob`` / ``read`` / ``edit`` /
+        ``bash``, the vocabulary intersection is empty and all three are inert. The
+        cost-primary experiment delivered one of them unconditionally as a document and
+        measured it costing 6% more for nothing — but in a real deployment the registry
+        would never have presented it at all.
+        """
+        vocab = {str(a) for a in observed_vocabulary}
+        out = []
+        for s in self.skills:
+            if s.vocabulary and not (s.vocabulary & vocab):
+                out.append({
+                    "name": s.name,
+                    "harness": s.harness or "unrecorded",
+                    "signature_vocabulary": sorted(s.vocabulary),
+                    "reason": ("trigger vocabulary is disjoint from the observed actions "
+                               "— this skill can never fire here"),
+                })
+        return out
 
     def gate_failures(self) -> list:
         out = [f"{s.name}: {f}" for s in self.skills for f in s.gate_failures()]

@@ -7,6 +7,7 @@ measured_body_tokens: 204   # observed on the wire, 3 sessions; chars/4 estimate
 preconditions:
   - a reproducer command exists and has been run at least once
   - the target file is known
+harness: mini-swe-agent   # the vocabulary the signature above speaks
 source: mined from 20 mini-SWE-agent sessions; the observed instance ran lint → patch
   → patch → lint → revert → lint against one file
 ---
