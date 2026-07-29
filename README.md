@@ -139,6 +139,9 @@ only with evidence. See [PROVENANCE.md](PROVENANCE.md).
   SIDECAR/HARNESS modes, the four actuators (diagrams render inline)
 - [Serving-B model benchmark](docs/benchmarks/serving-b/REPORT.md) — why the
   advisor defaults to a 1.7B model, with numbers
+- [Paired-harness pilot](docs/examples/skill-pilot/NOTES.md) — a real 12-run
+  experiment where the candidate arm swept 3–0, a placebo arm ate two thirds of
+  the effect, and the harness declined to call any of it
 - [First-run evidence](docs/examples/e2e-sample/NOTES.md) — a real agent
   session next to a real 400-retry storm the watchdog caught
 - [RFC-002: skill economics](docs/rfcs/RFC-002-skill-economics.md) — the v0.2
