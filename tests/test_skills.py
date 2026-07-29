@@ -101,3 +101,27 @@ def test_front_matter_is_required(tmp_path):
 def test_parser_exposes_skills_command():
     args = build_parser().parse_args(["skills", "--step-cost", "9000", "--turns", "20"])
     assert (args.step_cost, args.turns, args.dir) == (9000.0, 20, "skills")
+
+
+def test_measured_tokens_beat_the_estimate():
+    """A footprint observed on the wire always wins over chars/4 arithmetic."""
+    s = make(body="x" * 400)
+    assert not s.tokens_are_measured
+    estimated = s.body_tokens
+    s.measured_body_tokens = 999
+    assert s.tokens_are_measured and s.body_tokens == 999 != estimated
+
+
+def test_estimator_carries_the_measured_correction():
+    """chars/4 ran 31% low against a real document; the estimator must not
+    under-price, because under-pricing admits skills that cannot pay."""
+    from euthyna.skills.registry import estimate_tokens
+    raw_chars_over_four = 400 * 0.25
+    assert estimate_tokens("x" * 400) > raw_chars_over_four
+
+
+def test_shipped_skill_records_its_measurement():
+    reg = SkillRegistry.load(SKILLS_DIR)
+    probe = next(s for s in reg.skills if s.name == "swe-patch-probe")
+    assert probe.tokens_are_measured, "the skill we actually ran must carry its measurement"
+    assert probe.body_tokens == 204

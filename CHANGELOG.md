@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+- **Skill token estimation is now calibrated against a measurement.** Running a real
+  skill document through the gateway put chars/4 **31% low** (204 observed vs 156
+  estimated, stable across three sessions). Under-pricing is the direction that admits
+  skills which cannot pay, so `estimate_tokens` carries the correction and a skill may
+  record `measured_body_tokens` to override it outright — measured always beats
+  estimated. Evidence and two further findings in
+  `docs/examples/skill-pilot/MEASUREMENTS.md`, including that the document is not in
+  the prefix from turn one (so the hold horizon is `R−1`), and that its footprint is
+  2.4% of a session while step count varies up to 30× on the same task.
+
 ### Added
 - **Paired A/B harness** (RFC-002 layer 2) — `euthyna experiment plan|analyze`.
   `plan` turns a spec into a reproducible randomised run list (seeded Fisher-Yates

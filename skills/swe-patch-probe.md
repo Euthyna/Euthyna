@@ -3,6 +3,7 @@ name: swe-patch-probe
 description: Apply a candidate edit, re-run the reproducer, revert if nothing changed
 signature: [bash:echo, bash:sed, bash:sed, bash:echo, bash:sed, bash:echo]
 steps_replaced: 6
+measured_body_tokens: 204   # observed on the wire, 3 sessions; chars/4 estimated 156
 preconditions:
   - a reproducer command exists and has been run at least once
   - the target file is known

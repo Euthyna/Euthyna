@@ -32,12 +32,18 @@ GATES = {
     "min_steps_replaced": 1,
 }
 
-_TOKENS_PER_CHAR = 0.25  # 4 chars/token, the same convention as euthyna.core.transforms
+# 4 chars/token is the convention euthyna.core.transforms uses, but measuring a real
+# skill document through the gateway put it 31% low (204 observed vs 156 estimated,
+# consistent across three sessions — see docs/examples/skill-pilot). Estimating a
+# skill's cost too low is the direction that admits skills that cannot pay, so the
+# estimator carries the measured correction and a skill may override it outright.
+_TOKENS_PER_CHAR = 0.25
+_MEASURED_CORRECTION = 1.31
 _FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.S)
 
 
 def estimate_tokens(text: str) -> int:
-    return int(len(text) * _TOKENS_PER_CHAR)
+    return int(len(text) * _TOKENS_PER_CHAR * _MEASURED_CORRECTION)
 
 
 @dataclass
@@ -49,11 +55,18 @@ class Skill:
     description: str = ""
     preconditions: list = field(default_factory=list)
     source: str = ""                     # corpus/evidence the distillation came from
+    measured_body_tokens: Optional[int] = None   # observed on the wire, beats any estimate
     path: Optional[Path] = None
 
     @property
     def body_tokens(self) -> int:
-        return estimate_tokens(self.body)
+        """Measured footprint when someone has run this skill through a gateway and
+        recorded it; otherwise the corrected estimate. Measured always wins."""
+        return self.measured_body_tokens or estimate_tokens(self.body)
+
+    @property
+    def tokens_are_measured(self) -> bool:
+        return self.measured_body_tokens is not None
 
     def economics(self, step_cost_tok_eq: Optional[float],
                   remaining_turns: int = 40) -> Economics:
@@ -94,6 +107,7 @@ def load_skill(path) -> Skill:
         description=meta.get("description", ""),
         preconditions=list(meta.get("preconditions") or []),
         source=meta.get("source", ""),
+        measured_body_tokens=meta.get("measured_body_tokens"),
         path=path,
     )
 
@@ -143,8 +157,8 @@ class SkillRegistry:
         for s in self.skills:
             e = s.economics(step_cost_tok_eq, remaining_turns)
             rows.append({"name": s.name, "signature": s.signature,
-                         "source": s.source, **e.as_dict(),
-                         "gate_failures": s.gate_failures()})
+                         "source": s.source, "tokens_measured": s.tokens_are_measured,
+                         **e.as_dict(), "gate_failures": s.gate_failures()})
         return rows
 
     def to_json(self, step_cost_tok_eq: Optional[float]) -> str:
