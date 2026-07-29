@@ -1,0 +1,28 @@
+# Example experiment spec. `euthyna experiment plan experiments/example.yaml`
+#
+# Two arms are added for you unless you decline them, because a result without either
+# is not readable:
+#   raw_trajectory — retrieving the raw trace instead of a distilled skill. Published
+#                    work reports this baseline can WIN, so omitting it makes a
+#                    positive result meaningless.
+#   aa_sham        — byte-identical to the control. Its discordant rate is the noise
+#                    floor; an arm at or below it is noise whatever its p-value.
+name: patch-probe-v1
+notes: >
+  Does swe-patch-probe pay for itself? Its economics say it needs to save 2.7 steps
+  and the mined ritual is 6 steps long, so the derivation says yes. This measures it.
+
+tasks:
+  - django-16136
+  - xarray-2905
+  - sympy-14976
+
+arms:
+  - control        # no skill present
+  - candidate      # swe-patch-probe in the roster
+
+reps: 3
+seed: euthyna-2026-07
+
+# include_sham: false            # only if you have a floor from elsewhere
+# include_raw_baseline: false    # only if you have already beaten it once

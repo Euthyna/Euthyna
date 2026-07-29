@@ -38,7 +38,7 @@ lint = ["ruff>=0.4"]
 euthyna = "euthyna.cli.main:main"
 
 [tool.setuptools]
-packages = ["euthyna", "euthyna.core", "euthyna.core.adapters", "euthyna.gateway", "euthyna.cli", "euthyna.skills"]
+packages = ["euthyna", "euthyna.core", "euthyna.core.adapters", "euthyna.gateway", "euthyna.cli", "euthyna.skills", "euthyna.experiment"]
 
 [tool.setuptools.dynamic]
 version = { attr = "euthyna.version.__version__" }

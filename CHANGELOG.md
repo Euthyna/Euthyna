@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Added
+- **Paired A/B harness** (RFC-002 layer 2) — `euthyna experiment plan|analyze`.
+  `plan` turns a spec into a reproducible randomised run list (seeded Fisher-Yates
+  over stratified permuted blocks) and adds two arms unless declined: an **A/A sham**
+  whose discordant rate is the noise floor, and a **raw-trajectory** baseline, since
+  published work reports that retrieving the raw trace can beat retrieving its
+  distillate. `analyze` pairs outcomes on identical (task, rep) cells, runs an **exact
+  McNemar** test (stdlib binomial — the chi-square approximation is not trustworthy at
+  affordable sample sizes), joins per-run cost from the ledger, and reports
+  **help/harm/null counts rather than a mean**, which would hide runs moving in
+  opposite directions. An arm at or below the A/A floor is reported `WITHIN_NOISE`
+  whatever its p-value. Planning defaults come from the published paired split and
+  reproduce RFC-002's ~650-run figure.
 - **Signature-keyed skill registry with per-skill economics** (RFC-002 layers 1 and 3).
   `euthyna skills` loads SKILL.md-style files, matches them by exact flow signature
   (suffix of the recent action window — no embedding index below the sizes where
