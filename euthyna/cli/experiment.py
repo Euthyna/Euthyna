@@ -68,6 +68,9 @@ def _analyze(args) -> int:
         return 0
 
     print(f"paired analysis — control arm: {result['control']}\n")
+    b = result.get("baseline") or {}
+    if b.get("status") not in (None, "ok"):
+        print(f"!! BASELINE {b['status'].upper()} — {b['note']}\n")
     header = (f"{'arm':<18} {'pairs':>6} {'help':>5} {'harm':>5} {'null':>5} "
               f"{'p':>7} {'Δcost':>10}  verdict")
     print(header)

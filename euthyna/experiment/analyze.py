@@ -136,6 +136,37 @@ def cost_per_solve(outcomes: list, costs: Optional[dict] = None) -> dict:
     return per
 
 
+def baseline_check(outcomes: list, control: str) -> dict:
+    """Can the control arm do the task at all?
+
+    Every comparison below is against this arm, so if it solves nothing the experiment
+    is measuring capability rather than the intervention — and if it solves everything
+    the binary endpoint is saturated and only cost can move. Neither is a reason to
+    stop, but both change what the numbers mean, and the first invalidated this
+    project's own first pilot without anything in the analysis noticing.
+    """
+    runs = [r for r in outcomes if r["arm"] == control]
+    solved = sum(1 for r in runs if r.get("resolved"))
+    status = "ok"
+    if not runs:
+        status = "absent"
+    elif solved == 0:
+        status = "never_solves"
+    elif solved == len(runs):
+        status = "always_solves"
+    return {"arm": control, "runs": len(runs), "solved": solved, "status": status,
+            "note": {
+                "absent": f"no runs for control arm {control!r}",
+                "never_solves": (f"control solved 0 of {len(runs)}: every comparison "
+                                 "below measures capability, not the intervention, and "
+                                 "no cost comparison is possible"),
+                "always_solves": (f"control solved {len(runs)} of {len(runs)}: the "
+                                  "binary endpoint is saturated, so read the cost "
+                                  "endpoint"),
+                "ok": "",
+            }[status]}
+
+
 def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
     """Every arm against the control, with the A/A sham read as the noise floor."""
     arms = [a for a in dict.fromkeys(r["arm"] for r in outcomes) if a != control]
@@ -148,6 +179,7 @@ def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
         results.append({**r.as_dict(), "verdict": r.verdict(floor=floor)})
     return {
         "control": control,
+        "baseline": baseline_check(outcomes, control),
         "cost_per_solve": cost_per_solve(outcomes, costs),
         "cost_primary": [compare_cost(outcomes, control, a, costs).as_dict()
                          for a in arms if a != SHAM_ARM] if costs else [],
