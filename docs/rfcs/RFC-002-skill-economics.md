@@ -113,6 +113,68 @@ zeroed the entire cache including the system prompt? One request pair each.
 
 ## 5. Layer 2 — the paired harness (an instrument, not an intervention)
 
+### 5.1 Amendment (2026-07-29) — measure cost on tasks the baseline already solves
+
+The first pilot ran on tasks the baseline solved **0 of 3** times. On such tasks the
+binary endpoint measures *capability*, and cost comparison is not merely weak but
+meaningless: the cost of a run that failed is not comparable to the cost of a run that
+succeeded. The pilot write-up made exactly that mistake before it was caught.
+
+For a cost auditor the right regime is the opposite one: **tasks the baseline solves
+reliably**, where the outcome is held fixed and the only thing that varies is spend.
+That turns the endpoint from one bit per run into a paired continuous magnitude, and
+each task becomes its own control, so between-task variance — the dominant term in
+agent work — cancels.
+
+| endpoint | test | n for 80% power |
+|---|---|---|
+| binary resolve | exact McNemar | **650 paired runs** |
+| **paired cost** | Wilcoxon signed-rank | **13 paired runs** |
+
+Fifty times cheaper: eleven hours of local compute becomes twenty minutes.
+
+Consequences, all implemented:
+
+- Cost is compared **only on pairs both arms solved**; discordant pairs are dropped and
+  counted, never averaged in.
+- Resolve rate is carried as a **non-inferiority guard**: a cost win with a resolve
+  regression reports `QUALITY_REGRESSED` regardless of the p-value.
+- Task selection acquires a criterion. Because discordant pairs are dropped rather than
+  averaged, an unreliable task does not bias the estimate — it costs *pairs*. So
+  reliability is a power question with a numeric answer,
+  `scheduled = target / (p_a · p_b)`, and establishing it is a calibration run rather
+  than an experiment. `euthyna experiment calibrate`.
+- `analyze` refuses to be read silently in the bad regime: `baseline_check` reports
+  `never_solves` (no cost comparison is possible) or `always_solves` (binary endpoint
+  saturated — which is the regime a cost experiment *wants*).
+
+This mirrors the guarded-lossless / loss-tolerant split from the underlying research
+programme: hold quality constant and measure spend, rather than hoping to see both move
+at once.
+
+### 5.2 Amendment (2026-07-29) — the delivery channel is a variable
+
+The pilot delivered the skill as an `AGENTS.md` file and compared it against a control
+that carried nothing. Its arms therefore differed in **two** ways, not one: what the
+document said, and whether a document existed. A placebo arm controls the first. Nothing
+controlled the second, and the second turned out to be the whole effect — all six runs
+without an `AGENTS.md` failed, five of six with one succeeded, Fisher exact
+p = 0.0152, whatever the file contained.
+
+The cause was a harness defect (an absolute path outside the workspace in the agent
+prompt, which the model took for the project root). But the design lesson outlives the
+defect:
+
+> An intervention delivered as a file changes the workspace, not just the prompt. The
+> container is a variable even when it is meant to be a wrapper.
+
+So: **an arm that adds a file must be compared against an arm that adds an inert file,
+not against an arm that adds nothing.** The placebo is promoted from good practice to a
+required arm whenever delivery is document-style. And the abandon criterion in §5 is
+restated against the placebo, not against the empty control — `candidate ≤ placebo` is
+the failure condition, because `candidate > empty control` can be satisfied by the
+container alone.
+
 Power arithmetic decides the design:
 
 | Design | n to detect +1.2pp at 80% power |
