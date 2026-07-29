@@ -83,6 +83,48 @@ def test_example_profiles_load_and_register(registries):
         profile.register()  # syntactically valid: registers without error
 
 
+def _row(session, prompt, completion, cached=0, creation=0):
+    native = {"prompt_tokens": prompt, "completion_tokens": completion,
+              "cached_tokens": cached, "cache_creation_tokens": creation}
+    return {"session": session, "usage": {"prompt_tokens": prompt, "completion_tokens": completion},
+            "cost": {"native_tokens": native,
+                     "observed_flags": {"cached_tokens": True, "cache_creation_tokens": True},
+                     "imputed_flags": {"cached_tokens": False},
+                     "list_price_per_1m": {"input_per_1m": 0.0, "cached_input_per_1m": 0.0,
+                                           "output_per_1m": 0.0},
+                     "list_cost_usd": 0.0}}
+
+
+def test_step_cost_applies_published_multipliers():
+    """c_step = 1.0*uncached + 0.10*cached + 1.25*cache_creation + 5.0*output."""
+    from euthyna.ledger import step_cost
+    cost = _row("s", 10000, 500, cached=8000, creation=1000)["cost"]
+    # uncached 1000*1.0 + cached 8000*0.10 + creation 1000*1.25 + output 500*5.0
+    assert step_cost(cost) == 1000 + 800 + 1250 + 2500
+
+
+def test_step_cost_none_when_tokens_unobserved():
+    from euthyna.ledger import step_cost
+    assert step_cost({"native_tokens": {"prompt_tokens": None, "completion_tokens": 10}}) is None
+
+
+def test_step_saving_includes_the_compounding_term():
+    """Eliminating a step also spares later turns the 0.10x re-read of what it added.
+    Context growth is the observed prompt delta, never an assumed value."""
+    rows = [_row("s1", 10000, 100, cached=9000), _row("s1", 12000, 100, cached=11000),
+            _row("s1", 14000, 100, cached=13000), _row("s1", 16000, 100, cached=15000)]
+    s = aggregate(rows)["s1"]
+    assert s["mean_step_cost_tok_eq"] is not None
+    # growth 2000 per step; compounding = 0.10*2000*(2+1+0) / 3 steps = 200
+    assert s["mean_step_saving_tok_eq"] == round(s["mean_step_cost_tok_eq"] + 200.0, 1)
+    assert s["mean_step_saving_tok_eq"] > s["mean_step_cost_tok_eq"]
+
+
+def test_single_call_session_has_no_compounding():
+    s = aggregate([_row("s1", 1000, 50)])["s1"]
+    assert s["mean_step_saving_tok_eq"] == s["mean_step_cost_tok_eq"]
+
+
 def test_legacy_row_without_cost_quality_is_not_claimed_exact():
     """Rows written before 0.1.1 carry no cost_quality field. Deriving it from the cost
     row must not default to 'exact' when a priced cache category was unobservable —
