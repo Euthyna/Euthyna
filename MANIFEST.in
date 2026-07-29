@@ -1,3 +1,4 @@
 include LICENSE README.md PROVENANCE.md CHANGELOG.md
 recursive-include tests *.py *.json *.traj
 include profiles/openai.example.yaml profiles/anthropic.example.yaml
+recursive-include skills *.md
