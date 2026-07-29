@@ -1,0 +1,11 @@
+name: patch-probe-pilot
+notes: >
+  Pilot: does swe-patch-probe change outcomes on three tiny bug-fix tasks against a
+  local Qwen3-8B? Deliberately small — the point is to exercise plan -> run -> grade
+  -> analyze end to end, not to reach power. raw_trajectory is declined because there
+  is no trace store to retrieve from yet; that is a real limitation of the pilot.
+tasks: [fizz, sumdig, dedupe]
+arms: [control, candidate]
+reps: 1
+seed: pilot-2026-07-29
+include_raw_baseline: false
