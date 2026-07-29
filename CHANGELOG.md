@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Signature-keyed skill registry with per-skill economics** (RFC-002 layers 1 and 3).
+  `euthyna skills` loads SKILL.md-style files, matches them by exact flow signature
+  (suffix of the recent action window — no embedding index below the sizes where
+  retrieval is warranted), and prices every entry: hold cost
+  (`1.25*body + 0.10*body*turns`), net steps saved (ritual − 1, because invoking the
+  skill is itself a step), and the break-even it must clear at published paired rates.
+  Gates from RFC-002 §8 are enforced, each citing its measurement. Ships three skills
+  distilled from 20 real mini-SWE-agent sessions, each naming the corpus it came from.
 - **Step cost with the compounding term** (RFC-002 layer 1, S3).
   `c_step = 1.0*uncached + 0.10*cached + 1.25*cache_creation + 5.0*output`, applying
   the provider-published multipliers to the frozen H1 estimand. `euthyna report` now
