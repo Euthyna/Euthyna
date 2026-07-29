@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- **`actions` on every ledger row** — the tool calls a step actually made, in order.
+  `_tool_names` records the tools a request *offered*, which is what prefix-mutation
+  detection needs; this records the ones the model *invoked*, which is what a flow is
+  made of. Without it a signature can only be mined from whatever corpus produced a
+  skill, never from the harness it is deployed into. Both dialects, streaming and not;
+  fragmented streaming arguments are accumulated by index. `None` means the response was
+  unreadable, `[]` means it read fine and called nothing — never conflated.
+  For shell-style tools only the **first token** of the command is kept (`bash:grep`,
+  not the pattern): the verb is what distinguishes one ritual from another and
+  everything after it is the user's data.
 - **`step_cost_quality`** — the quality of a token-equivalent step cost is not the
   quality of the bill. `cost_quality` clears a row whose cache rates equal its input
   rate, which for a local model priced at zero is every row: the dollar total is exactly

@@ -404,3 +404,76 @@ async def test_healthz_and_stats(gateway):
     assert stats["calls"] == 1
     assert stats["prompt_tokens"] == 100
     assert stats["sessions"] == 1
+
+
+# --- extract_actions: the tool calls a response actually made -------------------------
+
+def test_openai_body_actions_in_order():
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"tool_calls": [
+        {"function": {"name": "glob", "arguments": '{"pattern":"*.py"}'}},
+        {"function": {"name": "read", "arguments": '{"path":"a.py"}'}},
+    ]}}]}
+    assert extract_actions("openai", body, None) == ["glob", "read"]
+
+
+def test_openai_stream_accumulates_name_and_arguments_by_index():
+    """The name arrives once; arguments arrive as fragments across later deltas."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"bash","arguments":"{\\"comm"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\\":\\"grep -rn foo .\\"}"}}]}}]}',
+        "data: [DONE]",
+    ])
+    assert extract_actions("openai", None, sse) == ["bash:grep"]
+
+
+def test_anthropic_body_and_stream_agree():
+    from euthyna.gateway.taps import extract_actions
+    body = {"content": [
+        {"type": "text", "text": "thinking"},
+        {"type": "tool_use", "name": "bash", "input": {"command": "sed -i s/a/b/ f.py"}},
+    ]}
+    assert extract_actions("anthropic", body, None) == ["bash:sed"]
+    sse = "\n".join([
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"bash"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"command\\":\\"sed -i s/a/b/ f.py\\"}"}}',
+    ])
+    assert extract_actions("anthropic", None, sse) == ["bash:sed"]
+
+
+def test_only_the_command_verb_is_kept_never_its_arguments():
+    """The verb distinguishes rituals; the rest is the user's data and is discarded."""
+    from euthyna.gateway.taps import _refine_action
+    secret = "grep -rn 'AKIAIOSFODNN7EXAMPLE' /home/loki/.aws/credentials"
+    assert _refine_action("bash", {"command": secret}) == "bash:grep"
+    got = _refine_action("bash", {"command": secret})
+    assert "AKIA" not in got and "credentials" not in got and "loki" not in got
+
+
+def test_absolute_paths_and_plain_verbs_are_the_same_action():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("bash", {"command": "/usr/bin/grep x ."}) == "bash:grep"
+    assert _refine_action("bash", {"command": "grep x ."}) == "bash:grep"
+
+
+def test_non_command_tools_are_not_refined():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("read", {"path": "a.py"}) == "read"
+    assert _refine_action("edit", '{"file":"a.py"}') == "edit"
+
+
+def test_unreadable_response_is_none_but_a_toolless_one_is_empty():
+    """None and [] must not be conflated: unknown is never rendered as 'called nothing'."""
+    from euthyna.gateway.taps import extract_actions
+    assert extract_actions("openai", None, None) is None
+    assert extract_actions("openai", {"choices": [{"message": {"content": "hi"}}]}, None) == []
+    assert extract_actions("openai", None, "data: not json\n") == []
+
+
+def test_malformed_arguments_degrade_to_the_bare_tool_name():
+    from euthyna.gateway.taps import extract_actions, _refine_action
+    assert _refine_action("bash", "{not json") == "bash"
+    body = {"choices": [{"message": {"tool_calls": [
+        {"function": {"name": "bash", "arguments": "{truncated"}}]}}]}
+    assert extract_actions("openai", body, None) == ["bash"]

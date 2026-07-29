@@ -189,6 +189,126 @@ def _anthropic_stream(sse_text: str) -> tuple[Optional[dict], Optional[str]]:
     return (usage or None), model
 
 
+# Tools whose first argument is a command line, so the tool name alone says nothing
+# about what the step did. mini-SWE-agent has exactly one tool, and every action in a
+# trace mined from it would otherwise be the same symbol.
+_COMMAND_TOOLS = {"bash", "shell", "terminal", "run_command", "execute_bash",
+                  "run_shell_command", "execute_command"}
+_COMMAND_ARG_KEYS = ("command", "cmd", "script", "shell_command")
+
+
+def _refine_action(name: str, arguments) -> str:
+    """``tool`` normally, ``tool:verb`` for shell-style tools.
+
+    Only the FIRST token of the command is kept. That token is what distinguishes one
+    ritual from another — ``bash:grep`` from ``bash:sed`` — and everything after it is
+    the user's data: paths, patterns, source text. Recording the verb and discarding the
+    rest is the whole of what flow mining needs, so the tap takes only that.
+    """
+    if name not in _COMMAND_TOOLS:
+        return name
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            return name
+    if not isinstance(arguments, dict):
+        return name
+    for key in _COMMAND_ARG_KEYS:
+        raw = arguments.get(key)
+        if isinstance(raw, str) and raw.strip():
+            verb = raw.strip().split()[0]
+            # A leading env assignment or absolute path is not the verb; keep the
+            # basename so `/usr/bin/grep` and `grep` are the same action.
+            verb = verb.split("/")[-1]
+            return f"{name}:{verb}" if verb else name
+    return name
+
+
+def extract_actions(dialect: str, body: Optional[dict],
+                    sse_text: Optional[str]) -> Optional[list]:
+    """The tool calls this response actually made, in order.
+
+    ``_tool_names`` records the tools a request *offered*, which is what prefix-mutation
+    detection needs. This records the ones the model *invoked*, which is what a flow is
+    made of. Without it a signature can only be mined from whatever corpus produced the
+    skill, never from the harness it is deployed into — and a signature in the wrong
+    harness's vocabulary is dead code that looks alive (RFC-002 §6).
+
+    Returns None when the response could not be read at all, distinguished from ``[]``
+    meaning a response that genuinely called no tools.
+    """
+    try:
+        if body is not None:
+            return (_anthropic_actions_body(body) if dialect == "anthropic"
+                    else _openai_actions_body(body))
+        if sse_text is None:
+            return None
+        return (_anthropic_actions_stream(sse_text) if dialect == "anthropic"
+                else _openai_actions_stream(sse_text))
+    except Exception:
+        return None  # fail-open: an unparseable response never costs us the row
+
+
+def _openai_actions_body(body: dict) -> list:
+    out = []
+    for choice in body.get("choices") or []:
+        message = choice.get("message") or {}
+        for call in message.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            if fn.get("name"):
+                out.append(_refine_action(fn["name"], fn.get("arguments")))
+    return out
+
+
+def _openai_actions_stream(sse_text: str) -> list:
+    """Accumulate by tool_calls index: the name arrives once, arguments in fragments."""
+    slots: dict = {}
+    order: list = []
+    for data in _sse_datas(sse_text):
+        for choice in data.get("choices") or []:
+            for call in (choice.get("delta") or {}).get("tool_calls") or []:
+                idx = call.get("index", 0)
+                fn = call.get("function") or {}
+                if idx not in slots:
+                    slots[idx] = {"name": None, "args": ""}
+                    order.append(idx)
+                if fn.get("name"):
+                    slots[idx]["name"] = fn["name"]
+                if isinstance(fn.get("arguments"), str):
+                    slots[idx]["args"] += fn["arguments"]
+    return [_refine_action(slots[i]["name"], slots[i]["args"])
+            for i in order if slots[i]["name"]]
+
+
+def _anthropic_actions_body(body: dict) -> list:
+    out = []
+    for block in body.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name"):
+            out.append(_refine_action(block["name"], block.get("input")))
+    return out
+
+
+def _anthropic_actions_stream(sse_text: str) -> list:
+    """content_block_start carries the name; input arrives as input_json_delta fragments."""
+    slots: dict = {}
+    order: list = []
+    for data in _sse_datas(sse_text):
+        kind = data.get("type")
+        if kind == "content_block_start":
+            block = data.get("content_block") or {}
+            if block.get("type") == "tool_use" and block.get("name"):
+                idx = data.get("index", len(order))
+                slots[idx] = {"name": block["name"], "args": ""}
+                order.append(idx)
+        elif kind == "content_block_delta":
+            idx = data.get("index")
+            delta = data.get("delta") or {}
+            if idx in slots and isinstance(delta.get("partial_json"), str):
+                slots[idx]["args"] += delta["partial_json"]
+    return [_refine_action(slots[i]["name"], slots[i]["args"]) for i in order]
+
+
 def _sse_datas(sse_text: str):
     for line in sse_text.splitlines():
         if line.startswith("data:"):
@@ -260,6 +380,7 @@ class Taps:
                                          self._prev_prompt_tokens.get(session))
         usage, model = extract_usage(dialect, response_json, response_sse)
         model = model or request_json.get("model")
+        actions = extract_actions(dialect, response_json, response_sse)
 
         cost, cost_error = None, None
         profile = self.config.profile_for(dialect)
@@ -286,6 +407,10 @@ class Taps:
             "latency_ms": round(latency_ms, 1),
             "usage": usage,  # exactly as the provider sent it
             "gateway_injected": injected,
+            # The tool calls this step actually made, in order — the unit a flow
+            # signature is built from. None means the response was unreadable; [] means
+            # it read fine and called nothing.
+            "actions": actions,
             "prefix_stable_ratio": ratio,
             # Cache-critical segment change (tools/system/model) since the previous
             # call in this session, with its marginal re-write cost. None = unchanged.
