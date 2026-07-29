@@ -1,5 +1,14 @@
 # What the pilot's ledger says about our own cost model — 2026-07-29
 
+> **Partial retraction.** The pilot these numbers come from was invalidated by a harness
+> defect ([NOTES.md](NOTES.md)). Sections 1 and 2 survive it: they are byte-level facts
+> about token counts on the wire, and hold whether or not any run solved its task.
+> **Section 3 does not.** Its cost-per-solve table compares arms whose solve rates were
+> determined by whether an `AGENTS.md` file happened to exist in the workspace, so the
+> "control burned 120k more tokens and solved nothing" finding is measuring the defect.
+> The *methodological* point in §3 — that a cheap failure is not cheap, and that an arm
+> solving nothing has no cost per solve — was arrived at independently and stands.
+
 The pilot ([NOTES.md](NOTES.md)) was run to test a skill. Its ledger turned out to
 test *us*: three assumptions in the RFC-002 economics were checkable against the wire,
 and two of them were wrong.
@@ -37,6 +46,10 @@ Consequence in the registry: `swe-localize-symbol`'s break-even moved 2.7 → 3.
 against 2 saved. It was already CANNOT_PAY; it is now further from paying.
 
 ## 3. Hold cost is not the binding constraint — and per-run cost is not a metric
+
+> ⚠ **The numbers in this section are retracted.** The solve rates they divide by are
+> artifacts. The reasoning about *what* to divide by is not, and is why
+> `cost_per_solve` exists. Read this section for the argument, not the table.
 
 The first version of this section compared per-run token totals across arms and
 reported that the candidate arm cost "5.99× more" on fizz. **That comparison is

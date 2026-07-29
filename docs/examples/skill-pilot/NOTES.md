@@ -1,5 +1,25 @@
 # Paired-harness pilot — 2026-07-29
 
+> ## ⚠ RETRACTED, same day
+>
+> **The separation between arms in this pilot is an artifact of the harness.** The run
+> prompt interpolated an absolute path to a directory *outside* the workspace
+> (`/Users/loki/Desktop/euthyna/.venv/bin/python`). Qwen3-8B read that as the project
+> root, tried to open `test_task.py` there, was refused by opencode's
+> external-directory guard, and ended the run having edited nothing.
+>
+> Arms that happened to carry an `AGENTS.md` were anchored to the correct root and
+> worked normally. Arms that carried nothing were not. That file's presence — not its
+> contents — is what the pilot measured. See
+> [§ The defect that got through](#the-defect-that-got-through).
+>
+> What still stands: the instrument refused to call a 3–0 sweep significant, and the
+> conclusion — *this establishes nothing about skills* — was right. It was right for
+> the wrong reason, and none of the five controls could see why.
+>
+> Superseded by the cost-primary experiment in
+> [`docs/examples/cost-primary/`](../cost-primary/).
+
 The first end-to-end run of `euthyna experiment`: plan → execute → grade → analyze,
 against a local Qwen3-8B on vllm-metal, all traffic through the gateway.
 
@@ -52,6 +72,71 @@ Still missing: a `raw_trajectory` arm. There is no trace store to retrieve from 
 and published work reports that baseline can beat a distilled skill, so no positive
 result here is meaningful until it runs.
 
+## The defect that got through
+
+The four bugs below were caught *before* the pilot ran. This one was not, and it
+invalidated the result.
+
+The prompt told the agent to run `{PY} -m pytest -q` with `PY` interpolated as an
+absolute path into a different project. That path is the only directory named anywhere
+in the instructions, and this model treated it as the project root:
+
+```
+! permission requested: external_directory (/Users/loki/Desktop/euthyna/*); auto-rejecting
+✗ Read /Users/loki/Desktop/euthyna/test_task.py failed
+Error: The user rejected permission to use this specific tool call.
+```
+
+The same task, same model, same harness, with the interpreter reaching the agent
+through `PATH` instead of through the prompt, is solved in four steps on the first
+attempt.
+
+### The ledger shows the confound directly
+
+Reconstructing all twelve runs from the gateway ledger by session. Arm totals match
+[MEASUREMENTS.md](MEASUREMENTS.md) exactly — candidate 177,135 and placebo 158,534 —
+so this is the same data the original write-up used:
+
+| arm | `AGENTS.md` | calls per run | prompt tokens | solved |
+|---|---|---|---|---|
+| `control` | **no** | 2, 30, 2 | 297,307 | **0 / 3** |
+| `aa_sham` | **no** | 2, 2, 2 | 27,966 | **0 / 3** |
+| `placebo` | yes (irrelevant) | 2, 11, 7 | 158,534 | 2 / 3 |
+| `candidate` | yes (the skill) | 7, 7, 8 | 177,135 | 3 / 3 |
+
+A 2-call run at ~9,320 tokens is the signature of the failure above: read the prompt,
+try the foreign directory, get refused, stop. **All six runs without an `AGENTS.md`
+failed. Five of the six with one succeeded**, whatever the file said — Fisher exact
+two-sided **p = 0.0152**, a cleaner separation than any effect the pilot attributed to
+the skill.
+
+The one control run that did not give up immediately thrashed to 30 calls and 278,661
+tokens against the directory it could not reach. That run is the whole of the "control
+burned 120k more tokens and solved nothing" finding in MEASUREMENTS.md §3.
+
+### Why the placebo arm did not catch it
+
+The placebo was designed to answer "does *any* document help, or this one?" — and it
+did its job, recovering 2 of the 3 wins. But both it and the candidate differ from the
+controls in **two** ways at once: content, and the existence of the file. A placebo
+controls the first. Nothing in the design controlled the second, because nothing in the
+design knew file presence could matter.
+
+The general form, which is the part worth keeping:
+
+> An intervention delivered as a file changes the workspace, not just the prompt. The
+> container is a variable even when it is meant to be a wrapper.
+
+### Rules this adds to the harness
+
+- No absolute path outside the workspace may appear in an agent prompt. Tooling reaches
+  the agent through the environment.
+- Any arm delivering a document must be paired with an arm delivering an inert document
+  of the same shape — and the **control** must be checked for whether it can perform
+  the task at all before any arm is compared to it. That check is now
+  `euthyna experiment calibrate`, and it returns `EXCLUDE_NEVER_SOLVED` for all three
+  of this pilot's tasks.
+
 ## Four ways this pilot silently produced garbage before the controls caught it
 
 Every one of these would have yielded a confident, publishable-looking, wrong number.
@@ -76,9 +161,22 @@ Plus one that only cost time: the agent hangs until timeout on an inherited stdi
 
 ## What this pilot establishes
 
-Nothing about skills. It establishes that the instrument works, that it declines to
-overclaim on a 3–0 sweep, and that a placebo arm is not optional — three of the four
-arms here were controls, and two of them changed the conclusion.
+Nothing about skills — the original conclusion, and still the right one.
+
+It does not establish that the instrument works. The instrument reported exactly what
+it was given and gave no indication that what it was given was meaningless. Five
+controls could not see a sixth confound, and the sixth was the one that mattered.
+
+What it establishes is narrower and less comfortable: **a well-controlled experiment on
+a broken harness produces a well-controlled wrong answer.** The A/A floor showed zero
+discordant pairs — read at the time as "these runs are deterministic", which was true,
+and taken as reassurance, which it was not. Determinism is not validity. A harness can
+fail identically every time.
+
+The one control that would have caught this is the one the pilot did not have: checking
+that the baseline can solve the task at all. Six baseline runs solved nothing, and
+nothing in the design treated that as a reason to stop. It is now
+`euthyna experiment calibrate`, and it refuses this pilot outright.
 
 ## Reproducing
 
