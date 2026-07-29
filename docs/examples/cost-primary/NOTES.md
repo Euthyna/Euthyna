@@ -20,8 +20,9 @@ baseline alone over a five-task difficulty ladder, 3 reps each:
 | `evens` | 2/3 | 0.67 | 0.14 | 0.44 | EXCLUDE_LOW_YIELD |
 | `maxof` | 1/3 | 0.33 | 0.02 | 0.11 | EXCLUDE_LOW_YIELD |
 
-`dedupe` is the load-bearing row: **the retracted pilot's control solved it 0/3.** Same
-model, same task, same harness — only the prompt defect removed. It now solves 3/3.
+`dedupe` also appeared in the retracted pilot, where the control arm failed it — though
+on a **single run**, since that pilot used one rep per task. Under the corrected harness
+it solves **3/3**. Suggestive rather than decisive: 0/1 against 3/3 is Fisher p = 0.25.
 
 Sizing came from the measured yield: 2 eligible tasks × 7 reps × 4 arms = **56 runs**,
 targeting 13 usable pairs (`required_pairs_cost(d=0.8)`). All four arms went through the

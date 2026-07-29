@@ -11,7 +11,8 @@
 > Two things invalidate this pilot, and neither is the one first proposed:
 >
 > 1. **The harness misdirects the agent**, demonstrably. Under the corrected harness the
->    same model solves `dedupe` — a task this pilot's control solved 0/3 — **3 of 3**.
+>    same model solves `dedupe` **3 of 3**, where this pilot's control failed it — on a
+>    single run, since this pilot used one rep per task.
 > 2. **The control arm solved 0 of 6.** Nothing was held constant, so there was nothing
 >    to compare against.
 >
