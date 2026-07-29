@@ -76,6 +76,31 @@ def compare(outcomes: list, arm_a: str, arm_b: str,
     )
 
 
+def cost_per_solve(outcomes: list, costs: Optional[dict] = None) -> dict:
+    """Cost per SOLVED task, per arm — the only denominator that means anything.
+
+    A cheap failure is not cheap, it is worthless: the tokens bought nothing and the
+    task still has to be done. Comparing a failed run's cost against a solved run's
+    makes the arm that gives up fastest look best, which is why this is reported
+    separately from the paired cost delta. An arm that solves nothing is `None`,
+    never a small number.
+    """
+    per: dict = {}
+    for r in outcomes:
+        a = per.setdefault(r["arm"], {"runs": 0, "solved": 0, "tokens": 0.0, "priced": 0})
+        a["runs"] += 1
+        a["solved"] += bool(r["resolved"])
+        c = (costs or {}).get(r.get("session"))
+        if c is not None:
+            a["tokens"] += c
+            a["priced"] += 1
+    for a in per.values():
+        a["tokens"] = round(a["tokens"], 1)
+        a["per_solve"] = (round(a["tokens"] / a["solved"], 1)
+                          if a["solved"] and a["priced"] else None)
+    return per
+
+
 def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
     """Every arm against the control, with the A/A sham read as the noise floor."""
     arms = [a for a in dict.fromkeys(r["arm"] for r in outcomes) if a != control]
@@ -88,6 +113,7 @@ def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
         results.append({**r.as_dict(), "verdict": r.verdict(floor=floor)})
     return {
         "control": control,
+        "cost_per_solve": cost_per_solve(outcomes, costs),
         "floor": ({**floor.as_dict(), "verdict": floor.verdict()} if floor else None),
         "results": results,
         "raw_baseline_present": RAW_ARM in arms,

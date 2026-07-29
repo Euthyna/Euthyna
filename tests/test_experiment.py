@@ -125,3 +125,23 @@ def test_parser_exposes_experiment_subcommands():
     assert parser.parse_args(["experiment", "plan", "s.yaml"]).experiment_command == "plan"
     a = parser.parse_args(["experiment", "analyze", "o.jsonl", "--no-cost"])
     assert (a.experiment_command, a.control, a.no_cost) == ("analyze", "control", True)
+
+
+def test_cost_per_solve_is_none_when_an_arm_solves_nothing():
+    """A cheap failure is not cheap. An arm that solves nothing must report no cost
+    per solve — never a small number that makes giving up look efficient."""
+    from euthyna.experiment.analyze import cost_per_solve
+    rows = _outcomes({("t1", "control"): False, ("t1", "cand"): True,
+                      ("t2", "control"): False, ("t2", "cand"): True})
+    costs = {"t1-control": 5_000.0, "t2-control": 5_000.0,
+             "t1-cand": 50_000.0, "t2-cand": 50_000.0}
+    per = cost_per_solve(rows, costs)
+    assert per["control"]["per_solve"] is None      # spent 10k, bought nothing
+    assert per["cand"]["per_solve"] == 50_000.0     # spent 100k for 2 solves
+    assert per["control"]["tokens"] < per["cand"]["tokens"]  # and still not cheaper
+
+
+def test_cost_per_solve_absent_without_cost_data():
+    from euthyna.experiment.analyze import cost_per_solve
+    rows = _outcomes({("t1", "control"): True})
+    assert cost_per_solve(rows)["control"]["per_solve"] is None

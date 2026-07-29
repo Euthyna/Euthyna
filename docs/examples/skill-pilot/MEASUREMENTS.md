@@ -36,23 +36,40 @@ now carries its 204.
 Consequence in the registry: `swe-localize-symbol`'s break-even moved 2.7 → 3.0 steps
 against 2 saved. It was already CANNOT_PAY; it is now further from paying.
 
-## 3. Hold cost is not the binding constraint — step count is
+## 3. Hold cost is not the binding constraint — and per-run cost is not a metric
 
-| task | control | candidate | ratio |
+The first version of this section compared per-run token totals across arms and
+reported that the candidate arm cost "5.99× more" on fizz. **That comparison is
+meaningless and the ratio should never have been written down.** It set the cost of a
+run that *failed* against the cost of a run that *succeeded*. A cheap failure is not
+cheap: those tokens bought nothing and the task still has to be done.
+
+The only denominator that means anything is cost per **solved** task:
+
+| arm | solved | tokens | tokens per solve |
 |---|---|---|---|
-| fizz | 2 calls / 9,318 tok (failed) | 7 calls / 55,831 tok (solved) | 5.99× |
-| sumdig | **30 calls / 278,661 tok (failed)** | 7 calls / 56,083 tok (solved) | **0.20×** |
-| dedupe | 2 calls / 9,320 tok (failed) | 8 calls / 65,221 tok (solved) | 7.00× |
+| control | **0 / 3** | 297,299 | **— nothing solved** |
+| candidate | 3 / 3 | 177,135 | **59,045** |
+| placebo | 2 / 3 | 158,534 | 79,267 |
+| aa_sham | **0 / 3** | 27,979 | **— nothing solved** |
 
-The document's footprint is **2.4%** of a candidate session. The spread between runs
-of the *same task* is up to **30×**. RFC-002 spends its care on a ≤500-token body cap
-and a break-even in steps; at these session lengths the body is rounding error and
-**the whole result is decided by how many steps the agent takes**.
+That inverts the picture completely. The control arm burned **120,000 more tokens
+than the candidate arm and solved nothing** — one of its runs thrashed to thirty calls
+and 278k tokens without a fix. And the "cheapest" arm in raw tokens is the A/A sham at
+27,979, precisely because it gave up fastest.
 
-Two shapes of failure show up, and they cost three orders of magnitude apart: the
-agent gives up at call two (9.3k tokens), or it thrashes to the cap (278k tokens on
-sumdig — thirty calls, still unsolved). A cost model built around what sits in the
-context cannot see either of them.
+> **The cheapest agent is the one that does nothing.** Any cost metric that ranks it
+> well is measuring the wrong thing.
+
+The document's own footprint is 2.4% of a candidate session — still rounding error, so
+the original point stands: at these session lengths a ≤500-token body cap is not where
+the money is. But the money is not in "steps" either. It is in **whether the run
+produced anything at all**, and the two failure shapes here cost three orders of
+magnitude apart: give up at call two (9.3k), or thrash to the cap (278k).
+
+`euthyna experiment analyze` now reports cost per solve per arm, and reports an arm
+that solved nothing as having *no* cost per solve rather than a flattering small
+number.
 
 ## What this changes
 

@@ -78,6 +78,14 @@ def _analyze(args) -> int:
               "arm at or below this is noise whatever its p-value")
     else:
         print("! no A/A sham arm in the outcomes: every verdict here is unfloored")
+    priced = {a: v for a, v in result["cost_per_solve"].items() if v["priced"]}
+    if priced:
+        print(f"\n{'arm':<18} {'solved':>7} {'tokens':>12} {'per solve':>12}")
+        for arm, v in sorted(priced.items()):
+            ps = f"{v['per_solve']:,.0f}" if v["per_solve"] is not None else "— (none solved)"
+            print(f"{arm[:18]:<18} {v['solved']:>3}/{v['runs']:<3} {v['tokens']:>12,.0f} {ps:>12}")
+        print("a cheap failure is not cheap: an arm that solves nothing has no cost "
+              "per solve, however few tokens it spent")
     if not result["raw_baseline_present"]:
         print("! no raw-trajectory arm: the baseline published work says can win is "
               "missing, so a positive result here is not yet meaningful")

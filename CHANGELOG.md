@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- **Cost per solved task** in `euthyna experiment analyze`. A cheap failure is not
+  cheap — its tokens bought nothing and the task still has to be done — so comparing
+  per-run cost across arms with different outcomes flatters whichever arm gives up
+  fastest. Cost is now reported per arm against the number of tasks it actually
+  solved, and an arm that solved nothing reports **no** cost per solve rather than a
+  small number. On the pilot data the control arm burned 120k more tokens than the
+  candidate arm and solved nothing, while the cheapest arm in raw tokens was the A/A
+  sham, which gave up fastest.
+
 ### Changed
 - **Skill token estimation is now calibrated against a measurement.** Running a real
   skill document through the gateway put chars/4 **31% low** (204 observed vs 156
