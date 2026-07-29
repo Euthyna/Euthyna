@@ -141,6 +141,8 @@ only with evidence. See [PROVENANCE.md](PROVENANCE.md).
   advisor defaults to a 1.7B model, with numbers
 - [First-run evidence](docs/examples/e2e-sample/NOTES.md) — a real agent
   session next to a real 400-retry storm the watchdog caught
+- [RFC-002: skill economics](docs/rfcs/RFC-002-skill-economics.md) — the v0.2
+  design, open for comment
 - [Changelog](CHANGELOG.md) · [Provenance](PROVENANCE.md)
 
 ## Status and roadmap
