@@ -1,0 +1,10 @@
+paired analysis — control arm: control
+
+arm                 pairs  help  harm  null       p      Δcost  verdict
+-----------------------------------------------------------------------
+candidate               3     3     0     0   0.250          —  UNDERPOWERED
+aa_sham (floor)         3     0     0     3       —          —  UNDERPOWERED
+-----------------------------------------------------------------------
+help/harm/null are counts of discordant pairs, not a mean — a mean would hide runs moving in opposite directions
+A/A floor discordant rate: 0.0 — an arm at or below this is noise whatever its p-value
+! no raw-trajectory arm: the baseline published work says can win is missing, so a positive result here is not yet meaningful

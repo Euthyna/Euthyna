@@ -1,0 +1,9 @@
+{"task": "fizz", "arm": "control", "rep": 0, "run_id": "fizz::control::0", "resolved": false, "agent_error": null, "wall_s": 42.0, "started_at": 1785339286.370004, "ended_at": 1785339328.397912}
+{"task": "fizz", "arm": "candidate", "rep": 0, "run_id": "fizz::candidate::0", "resolved": true, "agent_error": null, "wall_s": 67.0, "started_at": 1785339328.649434, "ended_at": 1785339395.603688}
+{"task": "fizz", "arm": "aa_sham", "rep": 0, "run_id": "fizz::aa_sham::0", "resolved": false, "agent_error": null, "wall_s": 42.9, "started_at": 1785339395.7972312, "ended_at": 1785339438.739082}
+{"task": "sumdig", "arm": "aa_sham", "rep": 0, "run_id": "sumdig::aa_sham::0", "resolved": false, "agent_error": null, "wall_s": 42.9, "started_at": 1785339438.982101, "ended_at": 1785339481.861195}
+{"task": "sumdig", "arm": "candidate", "rep": 0, "run_id": "sumdig::candidate::0", "resolved": true, "agent_error": null, "wall_s": 68.6, "started_at": 1785339482.100071, "ended_at": 1785339550.7308002}
+{"task": "sumdig", "arm": "control", "rep": 0, "run_id": "sumdig::control::0", "resolved": false, "agent_error": null, "wall_s": 146.0, "started_at": 1785339550.9234262, "ended_at": 1785339696.918187}
+{"task": "dedupe", "arm": "candidate", "rep": 0, "run_id": "dedupe::candidate::0", "resolved": true, "agent_error": null, "wall_s": 66.5, "started_at": 1785339697.177309, "ended_at": 1785339763.719955}
+{"task": "dedupe", "arm": "control", "rep": 0, "run_id": "dedupe::control::0", "resolved": false, "agent_error": null, "wall_s": 42.9, "started_at": 1785339763.92111, "ended_at": 1785339806.8620968}
+{"task": "dedupe", "arm": "aa_sham", "rep": 0, "run_id": "dedupe::aa_sham::0", "resolved": false, "agent_error": null, "wall_s": 42.9, "started_at": 1785339807.108908, "ended_at": 1785339850.037156}
