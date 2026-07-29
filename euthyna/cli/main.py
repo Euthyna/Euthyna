@@ -91,6 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
     ea.add_argument("--dates", nargs="*", default=None,
                     help="ledger days to read costs from (default: today)")
     ea.add_argument("--no-cost", action="store_true", help="skip the ledger cost join")
+    ea.add_argument("--window-costs", action="store_true",
+                    help="attribute cost by each run's [started_at, ended_at] window "
+                         "instead of by session id — correct when one run opens more "
+                         "than one upstream session, and requires serial runs")
     ea.add_argument("--json", action="store_true")
     ec = exp_sub.add_parser("calibrate", help="which tasks a cost experiment can run on, "
                                               "and how many pairs each needs scheduled")

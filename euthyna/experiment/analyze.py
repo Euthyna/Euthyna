@@ -14,9 +14,11 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from euthyna.ledger import aggregate, load_rows
+import datetime as _dt
 
-from .cost import compare_cost
+from euthyna.ledger import aggregate, load_rows, step_cost
+
+from .cost import compare_cost, cost_of
 from .plan import RAW_ARM, SHAM_ARM
 from .stats import PairedResult, mcnemar_exact
 
@@ -45,6 +47,38 @@ def session_costs(dates: list) -> dict:
     return costs
 
 
+def window_costs(outcomes: list, dates: list) -> dict:
+    """run_id -> cost, attributed by time containment rather than session identity.
+
+    Session attribution is not one-to-one: a single agent invocation can open more than
+    one upstream session (opencode opens a second, tiny one to title the conversation),
+    so keying cost on a session id silently drops part of the run. Runs executed
+    serially have disjoint [started_at, ended_at] windows, which makes containment both
+    exact and auditable — every ledger call lands in at most one run.
+
+    Requires ``started_at``/``ended_at`` on each outcome row. Rows without them are
+    skipped rather than guessed at.
+    """
+    calls = []
+    for date in dates:
+        for r in load_rows(date):
+            ts = r.get("ts")
+            if isinstance(ts, str):  # ISO form, as written by some tap versions
+                try:
+                    ts = _dt.datetime.fromisoformat(ts).timestamp()
+                except ValueError:
+                    continue
+            if ts is not None:
+                calls.append((ts, step_cost(r.get("cost") or {})))
+    out: dict = {}
+    for row in outcomes:
+        rid, t0, t1 = row.get("run_id"), row.get("started_at"), row.get("ended_at")
+        if rid is None or t0 is None or t1 is None:
+            continue
+        out[rid] = sum(c for ts, c in calls if t0 <= ts <= t1 and c is not None)
+    return out
+
+
 def compare(outcomes: list, arm_a: str, arm_b: str,
             costs: Optional[dict] = None) -> PairedResult:
     """Pair arm_b against arm_a on identical (task, rep) cells."""
@@ -63,7 +97,7 @@ def compare(outcomes: list, arm_a: str, arm_b: str,
         else:
             null += 1
         if costs:
-            ca, cb = costs.get(a.get("session")), costs.get(b.get("session"))
+            ca, cb = cost_of(a, costs), cost_of(b, costs)
             if ca is not None and cb is not None:
                 cost_deltas.append(cb - ca)
     pairs = helped + harmed + null

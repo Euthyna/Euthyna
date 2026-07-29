@@ -19,7 +19,7 @@ import yaml
 
 from euthyna.experiment import (
     ExperimentSpec, analyze, build_plan, calibrate, load_outcomes, plan_summary,
-    required_pairs, schedule, session_costs,
+    required_pairs, schedule, session_costs, window_costs,
 )
 
 
@@ -50,8 +50,18 @@ def _plan(args) -> int:
 
 def _analyze(args) -> int:
     outcomes = load_outcomes(args.outcomes)
-    costs = session_costs(args.dates or [_dt.date.today().isoformat()]) \
-        if not args.no_cost else None
+    dates = args.dates or [_dt.date.today().isoformat()]
+    if args.no_cost:
+        costs = None
+    elif getattr(args, "window_costs", False):
+        costs = window_costs(outcomes, dates)
+        missing = [r.get("run_id") for r in outcomes
+                   if r.get("started_at") is None or r.get("ended_at") is None]
+        if missing:
+            print(f"! {len(missing)} run(s) carry no time window and were left "
+                  "unpriced rather than guessed at\n")
+    else:
+        costs = session_costs(dates)
     result = analyze(outcomes, control=args.control, costs=costs)
     if args.json:
         print(json.dumps(result, indent=2))

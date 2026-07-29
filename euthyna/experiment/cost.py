@@ -39,6 +39,19 @@ def _rank(values: list) -> list:
     return ranks
 
 
+def cost_of(row: dict, costs: Optional[dict]) -> Optional[float]:
+    """A run's cost, keyed by session when one was recorded and by run_id otherwise.
+
+    Zero is a legitimate cost, so membership is tested rather than truthiness.
+    """
+    if not costs:
+        return None
+    for key in (row.get("session"), row.get("run_id")):
+        if key is not None and key in costs:
+            return costs[key]
+    return None
+
+
 def wilcoxon_signed_rank(deltas: list) -> Optional[float]:
     """Two-sided p-value for paired differences; exact below 20 pairs.
 
@@ -128,7 +141,7 @@ def compare_cost(outcomes: list, arm_a: str, arm_b: str, costs: dict) -> CostRes
         if not (a["resolved"] and b["resolved"]):
             dropped += 1          # cost of a failure is not comparable to cost of a solve
             continue
-        ca, cb = costs.get(a.get("session")), costs.get(b.get("session"))
+        ca, cb = cost_of(a, costs), cost_of(b, costs)
         if ca is None or cb is None:
             continue
         deltas.append(cb - ca)
