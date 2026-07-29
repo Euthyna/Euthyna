@@ -106,8 +106,12 @@ establishes only that the flow existed *somewhere*.
 
 ## Bottom line
 
-On tasks this baseline already solves, `swe-patch-probe` does not save money. It adds
-roughly 2% to a 57k-token run, replaces no steps, and is statistically
+On tasks this baseline already solves, `swe-patch-probe` does not save money. Its median
+delta of +1,208 is **2.1%** of a median 57,370-token run; the **+6.3%** in the table
+above is the same deltas summed over the summed base, which weights the wider pairs more
+heavily. Both are reported because they answer different questions — the typical run
+costs 2% more, the twelve pairs together cost 6% more. It replaces no steps, and is
+statistically
 indistinguishable from an inert document of similar length. The honest verdict is
 `NO_COST_DIFFERENCE` with the point estimate pointing the wrong way — and the reason is
 not that the skill is badly written, but that the flow it compiles does not occur in
