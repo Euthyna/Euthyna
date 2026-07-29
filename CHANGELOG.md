@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- **`euthyna skills` reports trigger reachability** against the action vocabulary
+  measured from your own ledger, not an assumed one. A signature can only match a harness
+  that emits those action names, so a skill mined from one harness and deployed into
+  another is dead code that looks alive — `match()` cannot say so, because never-matching
+  and not-yet-matching are the same observation. All three shipped skills come back DEAD
+  against opencode traffic. When no vocabulary has been observed the command says
+  reachability is UNKNOWN rather than treating silence as a clean bill of health.
+- **`observed_vocabulary` / `action_coverage`** on the ledger, which skip rows that
+  predate the actions tap and rows whose response was unreadable instead of folding them
+  in as "no actions" — the same unknown-is-not-zero rule the cache fields follow.
 - **`measured_steps_replaced` / `measured_in`** on a skill, with the same precedence rule
   as `measured_body_tokens`: measured beats declared. `steps_replaced` is inherited from
   the corpus a skill was mined from and travels with the file, so the economics gate would

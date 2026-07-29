@@ -75,6 +75,31 @@ def cost_quality(cost: dict) -> str:
     return "exact"
 
 
+def observed_vocabulary(rows: list[dict]) -> set:
+    """Every action name this traffic actually emitted.
+
+    Rows written before the actions tap existed carry no ``actions`` key, and rows whose
+    response could not be read carry ``None``. Neither is an observation that no actions
+    occurred, so both are skipped rather than folded in as empty — the same
+    unknown-is-not-zero rule the cache fields follow.
+    """
+    vocab: set = set()
+    for row in rows:
+        actions = row.get("actions")
+        if isinstance(actions, list):
+            vocab.update(str(a) for a in actions)
+    return vocab
+
+
+def action_coverage(rows: list[dict]) -> dict:
+    """How much of this traffic can speak about actions at all."""
+    total = len(rows)
+    recorded = sum(1 for r in rows if isinstance(r.get("actions"), list))
+    unreadable = sum(1 for r in rows if r.get("actions") is None and "actions" in r)
+    return {"calls": total, "with_actions": recorded, "unreadable": unreadable,
+            "pre_tap": total - recorded - unreadable}
+
+
 def step_cost_quality(cost: dict) -> str:
     """Quality of the *token-equivalent* step cost, which is not the quality of the bill.
 
