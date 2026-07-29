@@ -67,6 +67,16 @@ def run(args) -> int:
         detail = " · ".join(f"{k} ×{v}" for k, v in sorted(causes.items(), key=lambda kv: -kv[1]))
         print(f"prefix mutations: {mutations} ({detail}) — re-write cost "
               f"{cost:,.0f} tok-eq at 1.15× the cached prefix")
+    priced = [s for s in sessions.values() if s["mean_step_cost_tok_eq"] is not None]
+    if priced:
+        weighted = sum(s["mean_step_cost_tok_eq"] * s["calls"] for s in priced)
+        saving = sum((s["mean_step_saving_tok_eq"] or 0) * s["calls"] for s in priced)
+        calls = sum(s["calls"] for s in priced)
+        premium = (saving / weighted - 1) * 100 if weighted else 0
+        print(f"step cost: {weighted / calls:,.0f} tok-eq/step · eliminating one step "
+              f"actually saves {saving / calls:,.0f} ({premium:+.0f}% from the tokens it "
+              "would have added to every later turn)")
+
     unexplained = sum(s["cache_miss_unexplained"] for s in sessions.values())
     if unexplained:
         print(f"cache misses with an unmutated prefix: {unexplained} "

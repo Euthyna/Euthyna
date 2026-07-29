@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Optional
 
 
 def home() -> Path:
@@ -74,6 +75,35 @@ def cost_quality(cost: dict) -> str:
     return "exact"
 
 
+# Effective-cost weights. The first three extend the frozen H1 estimand
+# (w_uncached, w_cached, w_output) = (1.0, 0.1, 5.0) with the cache-write line the
+# original study's route never exposed. Euthyna only APPLIES weights, never chooses
+# them: these are the provider-published multipliers, not a tuned parameter.
+STEP_WEIGHTS = {"uncached": 1.0, "cached": 0.10, "cache_creation": 1.25, "output": 5.0}
+
+
+def step_cost(cost: dict) -> Optional[float]:
+    """Effective cost of one agent step in token-equivalents.
+
+    ``c_step = 1.0*uncached + 0.10*cached + 1.25*cache_creation + 5.0*output``
+
+    Returns None when prompt or completion tokens were never observed. When the cache
+    split is unobservable the whole prompt counts as uncached, which OVERSTATES the
+    step — the row's existing ``cost_quality`` already records that as
+    ``estimated_under_no_cache_assumption``; no separate flag is invented here.
+    """
+    native = cost.get("native_tokens") or {}
+    prompt, completion = native.get("prompt_tokens"), native.get("completion_tokens")
+    if prompt is None or completion is None:
+        return None
+    cached = native.get("cached_tokens") or 0
+    creation = native.get("cache_creation_tokens") or 0
+    uncached = max(prompt - cached - creation, 0)
+    w = STEP_WEIGHTS
+    return round(w["uncached"] * uncached + w["cached"] * cached
+                 + w["cache_creation"] * creation + w["output"] * completion, 1)
+
+
 def _row_cache_status(cost: dict) -> str:
     return cost.get("cache_status") or cache_status(cost)
 
@@ -102,6 +132,7 @@ def aggregate(rows: list[dict]) -> dict:
             "prefix_mutations": 0, "prefix_mutation_cost_tok_eq": 0.0,
             "mutation_causes": {}, "cache_miss_unexplained": 0,
             "ratios": [], "models": set(), "injected": 0,
+            "step_costs": [], "prompt_series": [],
         })
         s["calls"] += 1
         prompt, completion = _tokens(row)
@@ -115,8 +146,13 @@ def aggregate(rows: list[dict]) -> dict:
                 s["mutation_causes"][seg] = s["mutation_causes"].get(seg, 0) + 1
         if row.get("cache_miss_unexplained"):
             s["cache_miss_unexplained"] += 1
+        if prompt:
+            s["prompt_series"].append(prompt)
         cost = row.get("cost")
         if cost:
+            sc = step_cost(cost)
+            if sc is not None:
+                s["step_costs"].append(sc)
             status = _row_cache_status(cost)
             if status == "unavailable":
                 s["cache_unavailable_calls"] += 1
@@ -139,6 +175,19 @@ def aggregate(rows: list[dict]) -> dict:
     for sid, s in sessions.items():
         ratios = s.pop("ratios")
         s["mean_prefix_stable_ratio"] = round(sum(ratios) / len(ratios), 4) if ratios else None
+        costs, series = s.pop("step_costs"), s.pop("prompt_series")
+        s["mean_step_cost_tok_eq"] = round(sum(costs) / len(costs), 1) if costs else None
+        # Eliminating step k also spares every later turn the 0.10x re-read of the
+        # tokens it added — the compounding term. Context growth is measured, not
+        # assumed: it is the observed prompt delta between consecutive calls.
+        compounding = 0.0
+        n = len(series)
+        for k in range(n - 1):
+            growth = max(series[k + 1] - series[k], 0)
+            compounding += STEP_WEIGHTS["cached"] * growth * (n - k - 2)
+        s["mean_step_saving_tok_eq"] = (
+            round(s["mean_step_cost_tok_eq"] + compounding / max(n - 1, 1), 1)
+            if costs and n > 1 else s["mean_step_cost_tok_eq"])
         if s["cache_known_calls"] == 0:
             s["cached_tokens"] = None
             s["cached_fraction"] = None

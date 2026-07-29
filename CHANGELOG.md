@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Step cost with the compounding term** (RFC-002 layer 1, S3).
+  `c_step = 1.0*uncached + 0.10*cached + 1.25*cache_creation + 5.0*output`, applying
+  the provider-published multipliers to the frozen H1 estimand. `euthyna report` now
+  prices a step and, separately, what eliminating one actually saves — the step's own
+  cost plus the 0.10x re-read every later turn would have paid for the tokens it added.
+  Context growth is the observed prompt delta between consecutive calls, never an
+  assumed value. This turns "the headroom is in steps, not prompt tokens" into an
+  audited quantity.
 - **Prefix-mutation ledger** (RFC-002 layer 1, S1). The gateway now watches the two
   cache-critical request segments — `tools[]` and `system` — plus the model id, and
   records every mid-session change as a `prefix_mutation` row field: which segments
