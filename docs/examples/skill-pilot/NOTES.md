@@ -2,20 +2,23 @@
 
 > ## ⚠ RETRACTED, same day
 >
-> **The separation between arms in this pilot is an artifact of the harness.** The run
-> prompt interpolated an absolute path to a directory *outside* the workspace
-> (`/Users/loki/Desktop/euthyna/.venv/bin/python`). Qwen3-8B read that as the project
-> root, tried to open `test_task.py` there, was refused by opencode's
-> external-directory guard, and ended the run having edited nothing.
+> **This pilot's harness misdirects the agent, so nothing below can be read as a result.**
+> The run prompt interpolated an absolute path to a directory *outside* the workspace
+> (`/Users/loki/Desktop/euthyna/.venv/bin/python`). Qwen3-8B takes that for the project
+> root: it tries to open `test_task.py` there, opencode's external-directory guard
+> refuses it, and the run ends having edited nothing.
 >
-> Arms that happened to carry an `AGENTS.md` were anchored to the correct root and
-> worked normally. Arms that carried nothing were not. That file's presence — not its
-> contents — is what the pilot measured. See
-> [§ The defect that got through](#the-defect-that-got-through).
+> Two things invalidate this pilot, and neither is the one first proposed:
 >
-> What still stands: the instrument refused to call a 3–0 sweep significant, and the
-> conclusion — *this establishes nothing about skills* — was right. It was right for
-> the wrong reason, and none of the five controls could see why.
+> 1. **The harness misdirects the agent**, demonstrably. Under the corrected harness the
+>    same model solves `dedupe` — a task this pilot's control solved 0/3 — **3 of 3**.
+> 2. **The control arm solved 0 of 6.** Nothing was held constant, so there was nothing
+>    to compare against.
+>
+> **Why the four arms landed 0/3, 0/3, 2/3, 3/3 remains unexplained.** The first
+> explanation offered here — that an `AGENTS.md` in the workspace re-anchors the agent —
+> was tested directly and **not supported**. See
+> [§ What broke, and what is still unexplained](#what-broke-and-what-is-still-unexplained).
 >
 > Superseded by the cost-primary experiment in
 > [`docs/examples/cost-primary/`](../cost-primary/).
@@ -37,6 +40,10 @@ code — never what the agent says about itself.
 
 ## Result
 
+*The rest of this document is the original write-up, kept unedited as the record of what
+was claimed. It is superseded by the retraction above; the analysis in this section is
+wrong in ways the section itself could not see.*
+
 ```
 arm                 pairs  help  harm  null       p  verdict
 ------------------------------------------------------------
@@ -55,6 +62,11 @@ pairs, so these runs are deterministic and the 3–0 is a real difference betwee
 rather than sampling noise. A clean-looking result is exactly when a harness earns
 its keep.
 
+> **This inference is wrong.** Three A/A pairs agreeing is not evidence of determinism;
+> it is three coin flips landing the same way, which happens 25% of the time at p = 0.5.
+> Nine later runs on one task returned 1/3, 2/3 and 3/3 across conditions. The runs are
+> stochastic, and a zero-discordance floor at n = 3 says almost nothing.
+
 **The placebo arm ate most of the effect.** An `AGENTS.md` of similar length telling
 the agent to prefer descriptive variable names and group its imports — guidance with
 no bearing on any of the bugs — recovered **2 of the 3 wins**. So the honest reading
@@ -72,10 +84,9 @@ Still missing: a `raw_trajectory` arm. There is no trace store to retrieve from 
 and published work reports that baseline can beat a distilled skill, so no positive
 result here is meaningful until it runs.
 
-## The defect that got through
+## What broke, and what is still unexplained
 
-The four bugs below were caught *before* the pilot ran. This one was not, and it
-invalidated the result.
+The four bugs below were caught *before* the pilot ran. This one was not.
 
 The prompt told the agent to run `{PY} -m pytest -q` with `PY` interpolated as an
 absolute path into a different project. That path is the only directory named anywhere
@@ -91,7 +102,7 @@ The same task, same model, same harness, with the interpreter reaching the agent
 through `PATH` instead of through the prompt, is solved in four steps on the first
 attempt.
 
-### The ledger shows the confound directly
+### What the ledger shows
 
 Reconstructing all twelve runs from the gateway ledger by session. Arm totals match
 [MEASUREMENTS.md](MEASUREMENTS.md) exactly — candidate 177,135 and placebo 158,534 —
@@ -105,27 +116,57 @@ so this is the same data the original write-up used:
 | `candidate` | yes (the skill) | 7, 7, 8 | 177,135 | 3 / 3 |
 
 A 2-call run at ~9,320 tokens is the signature of the failure above: read the prompt,
-try the foreign directory, get refused, stop. **All six runs without an `AGENTS.md`
-failed. Five of the six with one succeeded**, whatever the file said — Fisher exact
-two-sided **p = 0.0152**, a cleaner separation than any effect the pilot attributed to
-the skill.
+try the foreign directory, get refused, stop. All six runs without an `AGENTS.md`
+failed; five of the six with one succeeded, whatever the file said.
+
+> **Correction.** An earlier version of this section reported Fisher exact p = 0.0152
+> for that split and called it a confound. Two things are wrong with it. The contingency
+> table was built *after* noticing the pattern in the same data that suggested it, so
+> the figure is descriptive, not inferential — the exact error this document exists to
+> warn about. And the hypothesis it encoded was then tested directly, and failed.
 
 The one control run that did not give up immediately thrashed to 30 calls and 278,661
 tokens against the directory it could not reach. That run is the whole of the "control
 burned 120k more tokens and solved nothing" finding in MEASUREMENTS.md §3.
 
-### Why the placebo arm did not catch it
+### The direct test, which refused to confirm it
 
-The placebo was designed to answer "does *any* document help, or this one?" — and it
-did its job, recovering 2 of the 3 wins. But both it and the candidate differ from the
-controls in **two** ways at once: content, and the existence of the file. A placebo
-controls the first. Nothing in the design controlled the second, because nothing in the
-design knew file presence could matter.
+Three conditions on one task, nine runs, the only differences being the prompt and
+whether an inert `AGENTS.md` — no skill content, no mention of paths or tests — sat in
+the workspace:
 
-The general form, which is the part worth keeping:
+| condition | prompt | `AGENTS.md` | solved | wall time |
+|---|---|---|---|---|
+| `bare` | broken | no | 1/3 | 42, 42, 65 s |
+| `anchored` | broken | yes, inert | 2/3 | 42, 63, 66 s |
+| `fixed` | corrected | no | **3/3** | 56, 60, 62 s |
 
-> An intervention delivered as a file changes the workspace, not just the prompt. The
-> container is a variable even when it is meant to be a wrapper.
+- **Does the file rescue the broken prompt?** `bare` 1/3 vs `anchored` 2/3, Fisher exact
+  **p = 1.0**. No. The explanation this document originally gave is not supported.
+- **Does removing the foreign path rescue it?** `bare` 1/3 vs `fixed` 3/3, **p = 0.40**.
+  The right direction, and consistent with the transcript above, but **not significant
+  at n = 3**. Pooling `double` across the calibration sweep and this diagnostic — same
+  task, same model, prompt the only difference — gives corrected 6/6 against broken 3/6,
+  p = 0.09. Still not established.
+
+Wall time is cleanly bimodal with no overlap: every failure ends at **42 s**, every
+success takes **56–66 s**. Failures give up; they do not thrash. That is the same shape
+as the 2-call, 9,320-token runs in the ledger.
+
+So the honest position is narrower than the first draft of this retraction:
+
+> The defect is real and its mechanism is directly observed. Its *magnitude* is not
+> established, and the arm-by-arm pattern in the pilot has no confirmed explanation. The
+> pilot is invalid because its harness misdirects the agent and its control could not do
+> the task — not because of any mechanism this document can name.
+
+The design lesson survives the failed hypothesis, on grounds of experimental design
+rather than evidence:
+
+> An intervention delivered as a file changes the workspace, not just the prompt. This
+> pilot could not separate the container from the content, and when the container was
+> tested on its own it explained nothing either. An uncontrolled variable does not have
+> to be the cause to make the result unreadable.
 
 ### Rules this adds to the harness
 

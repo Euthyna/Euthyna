@@ -157,16 +157,22 @@ at once.
 The pilot delivered the skill as an `AGENTS.md` file and compared it against a control
 that carried nothing. Its arms therefore differed in **two** ways, not one: what the
 document said, and whether a document existed. A placebo arm controls the first. Nothing
-controlled the second, and the second turned out to be the whole effect — all six runs
-without an `AGENTS.md` failed, five of six with one succeeded, Fisher exact
-p = 0.0152, whatever the file contained.
+controlled the second.
 
-The cause was a harness defect (an absolute path outside the workspace in the agent
-prompt, which the model took for the project root). But the design lesson outlives the
-defect:
+The pilot's arms did separate exactly along that line — all six runs without an
+`AGENTS.md` failed, five of six with one succeeded. That looked like the explanation,
+and a direct test refused to confirm it: with the same broken prompt, adding an inert
+`AGENTS.md` moved the solve rate from 1/3 to 2/3, Fisher exact **p = 1.0**. The
+container is not the cause, and the pilot's pattern has no confirmed explanation.
+
+Which is the point. The lesson does not rest on the container turning out to matter:
 
 > An intervention delivered as a file changes the workspace, not just the prompt. The
 > container is a variable even when it is meant to be a wrapper.
+
+An uncontrolled variable does not have to be the cause to make a result unreadable. It
+only has to be uncontrolled — after which no amount of analysis can rule it out, and the
+experiment has to be rerun rather than reinterpreted. That is what happened here.
 
 So: **an arm that adds a file must be compared against an arm that adds an inert file,
 not against an arm that adds nothing.** The placebo is promoted from good practice to a
