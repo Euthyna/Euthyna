@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Prefix-mutation ledger** (RFC-002 layer 1, S1). The gateway now watches the two
+  cache-critical request segments — `tools[]` and `system` — plus the model id, and
+  records every mid-session change as a `prefix_mutation` row field: which segments
+  changed, which tools were added/removed by name, and the marginal re-write cost at
+  1.15x (cache-write 1.25x minus cache-read 0.10x). The cost is priced from the
+  previous call's **observed** `prompt_tokens`; when the provider did not report them
+  it is `null` with `cost_basis: "unavailable"` — an unmeasurable mutation is never
+  given an invented size. A cache miss on an *unmutated* prefix is recorded separately
+  as `cache_miss_unexplained` (TTL expiry or provider-side eviction), so self-inflicted
+  and provider-side cache losses are never conflated. `euthyna report` summarises both.
+
+
 ## [0.1.1] — 2026-07-25
 
 Contract and privacy hardening; no behavior change to the proxied traffic.

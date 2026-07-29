@@ -99,12 +99,22 @@ def aggregate(rows: list[dict]) -> dict:
             "calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0,
             "cache_known_calls": 0, "cache_known_prompt": 0, "cache_unavailable_calls": 0,
             "cost_usd": 0.0, "cost_quality": {"exact": 0, "estimated": 0, "unavailable": 0},
+            "prefix_mutations": 0, "prefix_mutation_cost_tok_eq": 0.0,
+            "mutation_causes": {}, "cache_miss_unexplained": 0,
             "ratios": [], "models": set(), "injected": 0,
         })
         s["calls"] += 1
         prompt, completion = _tokens(row)
         s["prompt_tokens"] += prompt
         s["completion_tokens"] += completion
+        mutation = row.get("prefix_mutation")
+        if mutation:
+            s["prefix_mutations"] += 1
+            s["prefix_mutation_cost_tok_eq"] += mutation.get("cost_tok_eq") or 0
+            for seg in mutation.get("segments") or []:
+                s["mutation_causes"][seg] = s["mutation_causes"].get(seg, 0) + 1
+        if row.get("cache_miss_unexplained"):
+            s["cache_miss_unexplained"] += 1
         cost = row.get("cost")
         if cost:
             status = _row_cache_status(cost)

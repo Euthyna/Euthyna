@@ -56,4 +56,19 @@ def run(args) -> int:
     if quality["estimated"] or quality["unavailable"]:
         print(f"cost quality: {quality['exact']} exact · {quality['estimated']} estimated "
               f"(cache unobserved; true bill may be lower) · {quality['unavailable']} unavailable")
+
+    mutations = sum(s["prefix_mutations"] for s in sessions.values())
+    if mutations:
+        cost = sum(s["prefix_mutation_cost_tok_eq"] for s in sessions.values())
+        causes = {}
+        for s in sessions.values():
+            for k, v in s["mutation_causes"].items():
+                causes[k] = causes.get(k, 0) + v
+        detail = " · ".join(f"{k} ×{v}" for k, v in sorted(causes.items(), key=lambda kv: -kv[1]))
+        print(f"prefix mutations: {mutations} ({detail}) — re-write cost "
+              f"{cost:,.0f} tok-eq at 1.15× the cached prefix")
+    unexplained = sum(s["cache_miss_unexplained"] for s in sessions.values())
+    if unexplained:
+        print(f"cache misses with an unmutated prefix: {unexplained} "
+              "(TTL expiry or provider-side eviction — not self-inflicted)")
     return 0

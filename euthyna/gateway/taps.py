@@ -90,6 +90,72 @@ class PrefixMonitor:
         return "auto-" + _sha(canonical.encode())[:10]
 
 
+# Cache-write vs cache-read multipliers: a mutated prefix is re-written at 1.25x
+# instead of re-read at 0.10x, so the marginal cost of a mutation is (1.25 - 0.10).
+PREFIX_MUTATION_MULTIPLIER = 1.15
+
+
+def _tool_names(tools) -> list:
+    out = []
+    for t in tools or []:
+        if isinstance(t, dict):
+            fn = t.get("function") if isinstance(t.get("function"), dict) else None
+            name = (fn or t).get("name")
+            if name:
+                out.append(name)
+    return out
+
+
+class PrefixSegmentMonitor:
+    """Watches the two cache-critical request segments — ``tools`` and ``system`` —
+    for byte-level change within a session.
+
+    Providers invalidate a cached prefix top-down (tools -> system -> messages), so a
+    change to either segment re-writes the whole prefix at the cache-creation rate
+    instead of re-reading it. Nobody publishes what that costs in practice for any
+    agent harness; this records it per event.
+
+    The cost is expressed in the previous call's OBSERVED prompt tokens whenever the
+    provider reported them. If it did not, ``cost_tok_eq`` is None with a stated basis
+    — an unmeasurable mutation is never given an invented size.
+    """
+
+    def __init__(self) -> None:
+        self._last: "OrderedDict[str, dict]" = OrderedDict()
+
+    def observe(self, session: str, request_json: dict,
+                prev_prompt_tokens: Optional[int]) -> Optional[dict]:
+        tools = request_json.get("tools")
+        system = request_json.get("system")
+        state = {
+            "tools": _canonical(tools) if tools is not None else None,
+            "system": _canonical(system) if system is not None else None,
+            "model": request_json.get("model"),
+            "tool_names": _tool_names(tools),
+        }
+        prev = self._last.get(session)
+        self._last[session] = state
+        self._last.move_to_end(session)
+        while len(self._last) > _MAX_SESSIONS:
+            self._last.popitem(last=False)
+        if prev is None:
+            return None  # first call of a session establishes the baseline
+
+        changed = [k for k in ("tools", "system", "model") if prev[k] != state[k]]
+        if not changed:
+            return None
+        before, after = set(prev["tool_names"]), set(state["tool_names"])
+        return {
+            "segments": changed,
+            "tools_added": sorted(after - before),
+            "tools_removed": sorted(before - after),
+            "cost_tok_eq": (round(PREFIX_MUTATION_MULTIPLIER * prev_prompt_tokens, 1)
+                            if prev_prompt_tokens else None),
+            "cost_basis": ("observed_prev_prompt_tokens" if prev_prompt_tokens
+                           else "unavailable"),
+        }
+
+
 def extract_usage(dialect: str, body: Optional[dict], sse_text: Optional[str]) -> tuple[Optional[dict], Optional[str]]:
     """Pull (usage, model) out of a response body or SSE stream. Returns raw provider shapes."""
     if body is not None:
@@ -164,6 +230,8 @@ class Taps:
     def __init__(self, config: GatewayConfig) -> None:
         self.config = config
         self.prefix = PrefixMonitor()
+        self.segments = PrefixSegmentMonitor()
+        self._prev_prompt_tokens: "OrderedDict[str, int]" = OrderedDict()
 
     def observe(
         self,
@@ -188,6 +256,8 @@ class Taps:
         prompt = request_json.get("prompt")
         seed = _canonical(prompt) if prompt is not None else None
         session, ratio = self.prefix.observe(messages, session_header, seed=seed)
+        mutation = self.segments.observe(session, request_json,
+                                         self._prev_prompt_tokens.get(session))
         usage, model = extract_usage(dialect, response_json, response_sse)
         model = model or request_json.get("model")
 
@@ -217,6 +287,17 @@ class Taps:
             "usage": usage,  # exactly as the provider sent it
             "gateway_injected": injected,
             "prefix_stable_ratio": ratio,
+            # Cache-critical segment change (tools/system/model) since the previous
+            # call in this session, with its marginal re-write cost. None = unchanged.
+            "prefix_mutation": mutation,
+            # cache_read == 0 with an unmutated prefix is NOT a mutation: it is TTL
+            # expiry or a provider-side block-distance miss. Kept separable so the two
+            # causes are never conflated in analysis.
+            "cache_miss_unexplained": bool(
+                mutation is None and cost
+                and (cost.get("native_tokens") or {}).get("cached_tokens") == 0
+                and cost["observed_flags"].get("cached_tokens")
+            ),
             "cost": {**cost, "cache_status": cache_status(cost)} if cost else None,
             "cost_quality": cost_quality(cost) if cost else "unavailable",
             "cost_error": cost_error,
@@ -228,6 +309,15 @@ class Taps:
         if request_sha is not None:
             row["request_sha_before"], row["request_sha_after"] = request_sha
         self._append(self.config.ledger_dir / f"{now.date().isoformat()}.jsonl", row)
+
+        # Remember this call's OBSERVED prompt size so the next mutation in this
+        # session can be priced from measurement rather than an estimate.
+        observed_prompt = (usage or {}).get("prompt_tokens")
+        if observed_prompt:
+            self._prev_prompt_tokens[session] = observed_prompt
+            self._prev_prompt_tokens.move_to_end(session)
+            while len(self._prev_prompt_tokens) > _MAX_SESSIONS:
+                self._prev_prompt_tokens.popitem(last=False)
 
         self._append(
             self.config.traces_dir / f"{session}.jsonl",

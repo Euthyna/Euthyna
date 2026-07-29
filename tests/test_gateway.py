@@ -353,6 +353,48 @@ async def test_cost_quality_estimated_when_cache_priced_but_unobserved(backend, 
         await client.close()
 
 
+async def test_prefix_mutation_priced_from_observed_tokens(gateway):
+    """A tools[] change mid-session is the cache tax event nobody has measured.
+    It must be recorded, attributed, and priced from the previous call's OBSERVED
+    prompt tokens (1.25x write - 0.10x read = 1.15x), never from an estimate."""
+    client, config, _ = gateway
+    base = {"model": "test-model", "messages": [{"role": "user", "content": "x"}]}
+    await client.post("/v1/chat/completions",
+                      json={**base, "tools": [{"function": {"name": "read"}}]},
+                      headers={"X-Euthyna-Session": "sess-mut"})
+    await client.post("/v1/chat/completions",
+                      json={**base, "tools": [{"function": {"name": "read"}},
+                                              {"function": {"name": "grep"}}]},
+                      headers={"X-Euthyna-Session": "sess-mut"})
+    first, second = ledger_rows(config)
+    assert first["prefix_mutation"] is None  # first call establishes the baseline
+    m = second["prefix_mutation"]
+    assert m["segments"] == ["tools"]
+    assert m["tools_added"] == ["grep"] and m["tools_removed"] == []
+    # mock backend reports prompt_tokens=100 on call one
+    assert m["cost_tok_eq"] == 115.0
+    assert m["cost_basis"] == "observed_prev_prompt_tokens"
+
+
+async def test_unchanged_prefix_records_no_mutation(gateway):
+    client, config, _ = gateway
+    body = {"model": "test-model", "messages": [{"role": "user", "content": "x"}],
+            "tools": [{"function": {"name": "read"}}]}
+    for _ in range(2):
+        await client.post("/v1/chat/completions", json=body,
+                          headers={"X-Euthyna-Session": "sess-stable"})
+    assert all(r["prefix_mutation"] is None for r in ledger_rows(config))
+
+
+async def test_model_switch_counts_as_prefix_mutation(gateway):
+    client, config, _ = gateway
+    for model in ("test-model", "other-model"):
+        await client.post("/v1/chat/completions",
+                          json={"model": model, "messages": [{"role": "user", "content": "x"}]},
+                          headers={"X-Euthyna-Session": "sess-model"})
+    assert ledger_rows(config)[1]["prefix_mutation"]["segments"] == ["model"]
+
+
 async def test_healthz_and_stats(gateway):
     client, config, _ = gateway
     assert (await (await client.get("/healthz")).json())["ok"] is True
