@@ -1,0 +1,94 @@
+"""Join run outcomes to the ledger and report paired results.
+
+Outcomes are supplied as JSONL, one row per run:
+
+    {"task": "t1", "arm": "candidate", "rep": 0, "resolved": true, "session": "s001"}
+
+`session` is optional; when present the run's cost is read from the ledger, which is
+what lets a single table carry both halves of the question — did it work, and what did
+it cost. Nobody else pairs those.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Optional
+
+from euthyna.ledger import aggregate, load_rows
+
+from .plan import RAW_ARM, SHAM_ARM
+from .stats import PairedResult, mcnemar_exact
+
+
+def load_outcomes(path) -> list:
+    rows = []
+    for line in Path(path).read_text().splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        missing = {"task", "arm", "rep", "resolved"} - set(r)
+        if missing:
+            raise ValueError(f"outcome row missing keys {sorted(missing)}: {line[:80]}")
+        rows.append(r)
+    return rows
+
+
+def session_costs(dates: list) -> dict:
+    """session id -> effective cost in token-equivalents, summed over its calls."""
+    costs: dict = {}
+    for date in dates:
+        for sid, s in aggregate(load_rows(date)).items():
+            mean = s.get("mean_step_cost_tok_eq")
+            if mean is not None:
+                costs[sid] = costs.get(sid, 0.0) + mean * s["calls"]
+    return costs
+
+
+def compare(outcomes: list, arm_a: str, arm_b: str,
+            costs: Optional[dict] = None) -> PairedResult:
+    """Pair arm_b against arm_a on identical (task, rep) cells."""
+    index = {(r["task"], r["arm"], r["rep"]): r for r in outcomes}
+    cells = sorted({(r["task"], r["rep"]) for r in outcomes})
+    helped = harmed = null = 0
+    cost_deltas = []
+    for task, rep in cells:
+        a, b = index.get((task, arm_a, rep)), index.get((task, arm_b, rep))
+        if a is None or b is None:
+            continue  # an unmatched cell is dropped, never imputed
+        if bool(b["resolved"]) and not bool(a["resolved"]):
+            helped += 1
+        elif bool(a["resolved"]) and not bool(b["resolved"]):
+            harmed += 1
+        else:
+            null += 1
+        if costs:
+            ca, cb = costs.get(a.get("session")), costs.get(b.get("session"))
+            if ca is not None and cb is not None:
+                cost_deltas.append(cb - ca)
+    pairs = helped + harmed + null
+    return PairedResult(
+        arm_a=arm_a, arm_b=arm_b, pairs=pairs,
+        help_count=helped, harm_count=harmed, null_count=null,
+        p_value=mcnemar_exact(helped, harmed),
+        cost_delta_tok_eq=(round(sum(cost_deltas) / len(cost_deltas), 1)
+                           if cost_deltas else None),
+        cost_pairs=len(cost_deltas),
+    )
+
+
+def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
+    """Every arm against the control, with the A/A sham read as the noise floor."""
+    arms = [a for a in dict.fromkeys(r["arm"] for r in outcomes) if a != control]
+    floor = compare(outcomes, control, SHAM_ARM, costs) if SHAM_ARM in arms else None
+    results = []
+    for arm in arms:
+        if arm == SHAM_ARM:
+            continue
+        r = compare(outcomes, control, arm, costs)
+        results.append({**r.as_dict(), "verdict": r.verdict(floor=floor)})
+    return {
+        "control": control,
+        "floor": ({**floor.as_dict(), "verdict": floor.verdict()} if floor else None),
+        "results": results,
+        "raw_baseline_present": RAW_ARM in arms,
+    }

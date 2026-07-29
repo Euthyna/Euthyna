@@ -77,6 +77,21 @@ def build_parser() -> argparse.ArgumentParser:
                         help="session horizon used for hold cost (default: %(default)s)")
     skills.add_argument("--date", default=None, help="ledger day to measure step cost from")
     skills.add_argument("--json", action="store_true")
+
+    exp = sub.add_parser("experiment", help="plan a paired A/B and read its outcomes "
+                                            "(McNemar, with the A/A sham as the floor)")
+    exp_sub = exp.add_subparsers(dest="experiment_command", required=True)
+    ep = exp_sub.add_parser("plan", help="spec in, reproducible randomised run list out")
+    ep.add_argument("spec", help="experiment spec YAML")
+    ep.add_argument("--out", default="plan.jsonl")
+    ep.add_argument("--json", action="store_true")
+    ea = exp_sub.add_parser("analyze", help="outcomes in, paired counts + exact McNemar out")
+    ea.add_argument("outcomes", help="outcomes JSONL: task, arm, rep, resolved[, session]")
+    ea.add_argument("--control", default="control")
+    ea.add_argument("--dates", nargs="*", default=None,
+                    help="ledger days to read costs from (default: today)")
+    ea.add_argument("--no-cost", action="store_true", help="skip the ledger cost join")
+    ea.add_argument("--json", action="store_true")
     return parser
 
 
@@ -121,6 +136,9 @@ def main(argv=None) -> int:
     if args.command == "skills":
         from . import skills
         return skills.run(args)
+    if args.command == "experiment":
+        from . import experiment
+        return experiment.run(args)
     return 2
 
 
