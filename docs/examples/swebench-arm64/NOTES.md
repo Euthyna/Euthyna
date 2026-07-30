@@ -48,7 +48,49 @@ elsewhere, it degenerates.
 
 **Raising the step limit would buy more loop iterations, not more solutions.**
 
-## There is a real ritual in here, and it is not the one we shipped
+## The apparent ritual does not survive inspection
+
+At first reading the corpus looks like it contains a genuine localization ritual:
+
+```
+('find', 'grep', 'grep')    21 occurrences across 15 of 35 sessions
+```
+
+It does not. Classifying each occurrence by whether any of its three positions sits inside
+a run of 3+ identical verbs:
+
+| 3-gram | total | **healthy** | inside a loop |
+|---|---|---|---|
+| `(find, grep, grep)` | 24 | **5** | 19 |
+| `(find, find, grep)` | 12 | **3** | 9 |
+| `(grep, grep, grep)` | 252 | **0** | 252 |
+| `(cd, cd, cd)` | 325 | **0** | 325 |
+
+The best candidate is **79% an artifact of thrashing**, and five clean occurrences across
+an entire 28-instance corpus is not a flow — it is noise with a shape.
+
+`swe-localize-symbol`'s exact signature, `(grep, grep, grep)`, occurs **252 times and not
+once outside a loop**. Whether we keep its current key or re-mine it against this
+vocabulary, it fires only during pathology. For this workload that skill is not
+mis-keyed; it is unmineable.
+
+**So this corpus cannot support re-distillation.** That is the answer pass 1 existed to
+produce, and it is worth more than a resolve rate would have been: the plan was to harvest
+successful trajectories and distil skills from their recurring rituals, and the measurement
+says the recurring patterns here are overwhelmingly failure, not ritual.
+
+The single non-empty patch is the exception that shows what a productive trajectory looks
+like:
+
+```
+find find find ls grep grep grep grep grep grep grep sed grep sed sed grep mkdir find grep sed sed echo
+```
+
+Even it opens with seven consecutive greps — but the tail is a real edit-verify loop,
+`sed grep sed sed grep`, which is roughly what `swe-patch-probe` compiles. It occurred in
+exactly one run out of 28, so it is an observation, not evidence.
+
+## The shipped skill, for the record
 
 Excluding pure repetition, the strongest recurring flow is:
 
