@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- **mini-swe-agent integration** in `docs/SETUP.md` — zero fork and, unlike opencode,
+  deliberately **no session plugin**. mini-swe-agent builds its model per instance inside
+  `process_instance()`, so a per-instance header would mean patching the runner, and a
+  header set once per batch would collapse every instance into one session. The gateway's
+  prefix-chaining handles it instead: two instances run back to back produced two distinct
+  sessions with `prefix_stable_ratio` 1.0 inside each, and content-keyed grouping survives
+  parallel workers that a process-scoped header would not. Documents the two measured
+  gotchas — `MSWEA_COST_TRACKING=ignore_errors` (litellm aborts computing cost for a local
+  model) and the context window, which a toy task overran *after* solving.
 - **`euthyna skills` reports trigger reachability** against the action vocabulary
   measured from your own ledger, not an assumed one. A signature can only match a harness
   that emits those action names, so a skill mined from one harness and deployed into

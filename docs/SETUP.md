@@ -14,7 +14,8 @@ macOS 26.1, 2026-07-21. Nothing here needs an API key and nothing leaves your ma
 ### 0. What you're building
 
 ```
-opencode ──baseURL──▶ euthyna gateway :4517 ──▶ vllm-metal :8000 (Serving A, 7–8B)
+opencode        ──baseURL──▶ euthyna gateway :4517 ──▶ vllm-metal :8000 (Serving A, 7–8B)
+mini-swe-agent  ──baseURL──▶       (same gateway, no fork, no plugin)
                         │ ledger · traces · prefix watchdog
                         ▼
               euthyna report / doctor / analyze ◀── Qwen3-1.7B :8001 (Serving B, optional)
@@ -116,7 +117,50 @@ A healthy agent session reports `prefix_stable_ratio ≈ 0.93+` (append-only con
 The first-run artifacts in `docs/examples/e2e-sample/` include a real 400-retry storm the
 watchdog caught at ratio 0.004 — that contrast is the product.
 
-### 5. Serving B — the advisor slot (optional)
+### 5. mini-swe-agent — zero fork, and no plugin needed
+
+The harness the shipped skills were mined from. It speaks OpenAI dialect through
+litellm, so the gateway needs nothing but the base URL. Write its global config once
+(`~/Library/Application Support/mini-swe-agent/.env` on macOS):
+
+```ini
+MSWEA_CONFIGURED=true
+MSWEA_MODEL_NAME=openai/mlx-community/Qwen3-8B-4bit
+OPENAI_API_KEY=dummy-local
+OPENAI_BASE_URL=http://127.0.0.1:4517/v1
+MSWEA_COST_TRACKING=ignore_errors
+```
+
+`MSWEA_COST_TRACKING=ignore_errors` is required, not cosmetic: litellm has no price
+sheet for a local model and aborts the run computing cost. Euthyna does the accounting
+from the wire anyway, so litellm's estimate is not wanted.
+
+```bash
+euthyna doctor
+mini -y -c mini.yaml -t "fix the failing test in this directory"
+euthyna skills          # observed vocabulary + which triggers can fire
+```
+
+**Unlike opencode, do not add a session header.** mini-swe-agent builds its model
+per instance inside `process_instance()`, so a per-instance `X-Euthyna-Session` would
+mean patching the runner — and a header set once per *batch* would collapse every
+instance into one session, which is worse than no header at all. The gateway's
+prefix-chaining handles it: two instances run back to back produced two distinct
+sessions with `prefix_stable_ratio` 1.0 inside each. Content-keyed grouping also
+survives parallel workers, which a process-scoped header would not.
+
+Two measured cautions before a benchmark run:
+
+- **Context window.** A local toy task overran `--max-model-len 16384` *after* solving.
+  Real repository observations are far longer, so raise the window well past the
+  opencode default. `SWE-Lego-Qwen3-8B` supports 163,840.
+- **Tool-call reliability is part of the cost.** On Qwen3-8B-4bit, one 5-step run
+  emitted valid tool calls on only 2 of 5 calls; the rest were format errors that
+  mini-swe-agent re-prompts. Those steps are billed and appear in the ledger as
+  `actions: []` — read fine, called nothing — which is exactly the distinction the tap
+  preserves. Budget for them.
+
+### 6. Serving B — the advisor slot (optional)
 
 ```bash
 VLLM_METAL_USE_PAGED_ATTENTION=1 VLLM_METAL_MEMORY_FRACTION=0.2 caffeinate -i \
@@ -135,7 +179,7 @@ model quality. Default model per the measured comparison in
 `docs/benchmarks/serving-b/REPORT.md`: Qwen3-1.7B-4bit (only format-reliable
 1B-class model on this stack); recommendation quality is gated work (Part 2).
 
-### 6. Frontier APIs — the same pipeline, bigger models
+### 7. Frontier APIs — the same pipeline, bigger models
 
 Both slots take any OpenAI/Anthropic-dialect endpoint; local serving is the default,
 not a limit. Key hygiene rule everywhere: **configs and profiles store only the NAME
