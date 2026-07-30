@@ -262,23 +262,33 @@ def _openai_actions_body(body: dict) -> list:
 
 
 def _openai_actions_stream(sse_text: str) -> list:
-    """Accumulate by tool_calls index: the name arrives once, arguments in fragments."""
-    slots: dict = {}
-    order: list = []
+    """Accumulate by tool_calls index: the name arrives once, arguments in fragments.
+
+    Two details matter and neither is hypothetical. A provider that omits ``index``
+    entirely would collapse every call into slot 0 and lose all but the last, so a *name*
+    arriving at a slot that already has one opens a new slot instead of overwriting.
+    And deltas can arrive out of index order, while a flow signature is an ordered suffix
+    match — so the result is ordered by index, not by arrival.
+    """
+    slots: list = []          # [{"index", "name", "args"}], in creation order
+    by_index: dict = {}       # index -> the open slot currently accumulating for it
     for data in _sse_datas(sse_text):
         for choice in data.get("choices") or []:
             for call in (choice.get("delta") or {}).get("tool_calls") or []:
                 idx = call.get("index", 0)
                 fn = call.get("function") or {}
-                if idx not in slots:
-                    slots[idx] = {"name": None, "args": ""}
-                    order.append(idx)
+                slot = by_index.get(idx)
+                if slot is None or (fn.get("name") and slot["name"]):
+                    slot = {"index": idx, "name": None, "args": ""}
+                    slots.append(slot)
+                    by_index[idx] = slot
                 if fn.get("name"):
-                    slots[idx]["name"] = fn["name"]
+                    slot["name"] = fn["name"]
                 if isinstance(fn.get("arguments"), str):
-                    slots[idx]["args"] += fn["arguments"]
-    return [_refine_action(slots[i]["name"], slots[i]["args"])
-            for i in order if slots[i]["name"]]
+                    slot["args"] += fn["arguments"]
+    named = [s for s in slots if s["name"]]
+    named.sort(key=lambda s: s["index"])   # stable: ties keep creation order
+    return [_refine_action(s["name"], s["args"]) for s in named]
 
 
 def _anthropic_actions_body(body: dict) -> list:
@@ -290,23 +300,27 @@ def _anthropic_actions_body(body: dict) -> list:
 
 
 def _anthropic_actions_stream(sse_text: str) -> list:
-    """content_block_start carries the name; input arrives as input_json_delta fragments."""
-    slots: dict = {}
-    order: list = []
+    """content_block_start carries the name; input arrives as input_json_delta fragments.
+
+    Each start opens its own slot even when an index repeats, so a reused index cannot
+    make two distinct calls render as the last one twice.
+    """
+    slots: list = []
+    by_index: dict = {}
     for data in _sse_datas(sse_text):
         kind = data.get("type")
         if kind == "content_block_start":
             block = data.get("content_block") or {}
             if block.get("type") == "tool_use" and block.get("name"):
-                idx = data.get("index", len(order))
-                slots[idx] = {"name": block["name"], "args": ""}
-                order.append(idx)
+                slot = {"name": block["name"], "args": ""}
+                slots.append(slot)
+                by_index[data.get("index", len(slots) - 1)] = slot
         elif kind == "content_block_delta":
-            idx = data.get("index")
+            slot = by_index.get(data.get("index"))
             delta = data.get("delta") or {}
-            if idx in slots and isinstance(delta.get("partial_json"), str):
-                slots[idx]["args"] += delta["partial_json"]
-    return [_refine_action(slots[i]["name"], slots[i]["args"]) for i in order]
+            if slot is not None and isinstance(delta.get("partial_json"), str):
+                slot["args"] += delta["partial_json"]
+    return [_refine_action(s["name"], s["args"]) for s in slots]
 
 
 def _sse_datas(sse_text: str):

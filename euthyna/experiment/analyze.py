@@ -47,6 +47,28 @@ def session_costs(dates: list) -> dict:
     return costs
 
 
+def overlapping_runs(outcomes: list) -> set:
+    """Runs whose time windows intersect another's, so containment cannot attribute them.
+
+    Serial runs have disjoint windows and every ledger call lands in exactly one. Run the
+    harness with parallel workers and the windows interleave: a call inside two windows
+    gets counted in both, which silently inflates the cost of every arm. This names those
+    runs so they can be excluded rather than double-counted.
+    """
+    spans = [(r["started_at"], r["ended_at"], r.get("run_id")) for r in outcomes
+             if r.get("started_at") is not None and r.get("ended_at") is not None
+             and r.get("run_id") is not None]
+    spans.sort()
+    bad: set = set()
+    for i, (a0, a1, aid) in enumerate(spans):
+        for b0, b1, bid in spans[i + 1:]:
+            if b0 > a1:
+                break            # sorted by start: nothing later can overlap either
+            bad.add(aid)
+            bad.add(bid)
+    return bad
+
+
 def window_costs(outcomes: list, dates: list) -> dict:
     """run_id -> cost, attributed by time containment rather than session identity.
 
@@ -70,10 +92,17 @@ def window_costs(outcomes: list, dates: list) -> dict:
                     continue
             if ts is not None:
                 calls.append((ts, step_cost(r.get("cost") or {})))
+    ambiguous = overlapping_runs(outcomes)
     out: dict = {}
     for row in outcomes:
         rid, t0, t1 = row.get("run_id"), row.get("started_at"), row.get("ended_at")
         if rid is None or t0 is None or t1 is None:
+            continue
+        if rid in ambiguous:
+            # A call inside two windows belongs to at most one run, and the clock cannot
+            # say which. Counting it in both inflates every arm; leaving these runs
+            # unpriced makes them drop out of the comparison instead, which is the same
+            # rule the cache fields follow — unknown is never rendered as a number.
             continue
         out[rid] = sum(c for ts, c in calls if t0 <= ts <= t1 and c is not None)
     return out

@@ -477,3 +477,45 @@ def test_malformed_arguments_degrade_to_the_bare_tool_name():
     body = {"choices": [{"message": {"tool_calls": [
         {"function": {"name": "bash", "arguments": "{truncated"}}]}}]}
     assert extract_actions("openai", body, None) == ["bash"]
+
+
+# --- streaming action-parser regressions ---------------------------------------------
+
+def test_deltas_without_an_index_do_not_collapse_into_one_call():
+    """A provider that omits `index` would otherwise lose every call but the last."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"read","arguments":"{}"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"edit","arguments":"{}"}}]}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["read", "edit"]
+
+
+def test_actions_are_ordered_by_index_not_arrival():
+    """A signature is an ordered suffix match, so arrival order would mis-key it."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"name":"edit"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"read"}}]}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["read", "edit"]
+
+
+def test_arguments_still_accumulate_across_fragments_after_the_reorder():
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"bash","arguments":"{\\"comm"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\\":\\"grep -rn x .\\"}"}}]}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["bash:grep"]
+
+
+def test_anthropic_reused_block_index_keeps_both_calls_distinct():
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"bash"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"command\\":\\"grep x\\"}"}}',
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"bash"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"command\\":\\"sed y\\"}"}}',
+    ])
+    assert extract_actions("anthropic", None, sse) == ["bash:grep", "bash:sed"]

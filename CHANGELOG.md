@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+- **`window_costs` double-counted every call shared by two overlapping run windows.**
+  Window attribution assumes one call belongs to one run, which holds only for serial
+  runs; with parallel workers the windows interleave and a shared call was counted in
+  both, inflating every arm. One 1,050 tok-eq call attributed 2,100. `overlapping_runs`
+  now names the affected runs and they are left **unpriced** so they drop out of the
+  comparison, with the CLI saying so — unknown is never rendered as a number.
+- **Three streaming action-parser defects**, all of which corrupt flow signatures:
+  deltas that omit `index` collapsed into one slot and lost every call but the last;
+  results came back in arrival order rather than index order, which mis-keys an ordered
+  suffix match; and a reused Anthropic `content_block` index made two distinct calls
+  render as the last one twice.
+
 ### Added
 - **mini-swe-agent integration** in `docs/SETUP.md` — zero fork and, unlike opencode,
   deliberately **no session plugin**. mini-swe-agent builds its model per instance inside

@@ -19,7 +19,8 @@ import yaml
 
 from euthyna.experiment import (
     ExperimentSpec, analyze, build_plan, calibrate, load_outcomes, plan_summary,
-    cost_basis, required_pairs, schedule, session_costs, window_costs,
+    cost_basis, overlapping_runs, required_pairs, schedule, session_costs,
+    window_costs,
 )
 
 
@@ -60,6 +61,14 @@ def _analyze(args) -> int:
         if missing:
             print(f"! {len(missing)} run(s) carry no time window and were left "
                   "unpriced rather than guessed at\n")
+        # Window attribution assumes one call belongs to one run. Parallel workers break
+        # that, and counting a shared call in both runs would inflate every arm.
+        overlap = overlapping_runs(outcomes)
+        if overlap:
+            print(f"! {len(overlap)} run(s) have overlapping time windows and were left "
+                  "UNPRICED — the clock cannot say which run a shared call belongs to. "
+                  "These runs were executed in parallel; use session-keyed costs "
+                  "instead of --window-costs\n")
     else:
         costs = session_costs(dates)
     result = analyze(outcomes, control=args.control, costs=costs)
