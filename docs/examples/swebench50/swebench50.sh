@@ -17,7 +17,7 @@
 set -e
 cd "$(dirname "$0")"
 
-MODEL="${MODEL:-openai/SWE-Lego-Qwen3-8B-MLX-8bit}"
+MODEL="${MODEL:-openai/SWE-Lego-Qwen3-8B-MLX-4bit}"
 WORKERS="${WORKERS:-1}"
 OUT="${OUT:-$HOME/swebench50-run1}"
 STEP_LIMIT="${STEP_LIMIT:-50}"
@@ -52,8 +52,10 @@ $MINI swebench \
   --environment-class docker \
   --output "$OUT" \
   -c swebench.yaml \
+  -c model.model_kwargs.temperature=0 \
   -c agent.step_limit=$STEP_LIMIT \
-  -c model.model_kwargs.temperature=0
+  -c 'model.model_kwargs.max_tokens=2048' \
+  -c agent.max_observation_length=20000
 
 echo "\n=============== what the gateway saw ==============="
 cd /Users/loki/Desktop/euthyna

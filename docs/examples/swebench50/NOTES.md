@@ -1,4 +1,9 @@
-# SWE-bench 50 — pass 1 protocol (not yet run) — 2026-07-29
+# SWE-bench arm64 — pass 1 protocol — 2026-07-29
+
+> **Amended after standing the environment up.** The subset is **28**, not 50, and the
+> reason is architectural rather than scientific — see
+> [§ Why 28](#why-28-and-what-that-costs). The runner is
+> [`swebench-arm64.sh`](swebench-arm64.sh); `swebench50.sh` is kept for the x86_64 path.
 
 Everything needed to run the 50-instance SWE-bench Verified subset through
 mini-SWE-agent with the gateway in the loop. **Nothing here has been run yet**; it is
@@ -33,6 +38,58 @@ them — **any resolve rate here describes this subset, not SWE-bench Verified.*
 trajectories for distillation, not estimating capability. If the model saw these
 instances in training, the resolve rate goes up, which serves the goal. The cost is that
 **the resolve rate must never be reported as a capability result.**
+
+## Why 28, and what that costs
+
+SWE-bench publishes `sweb.eval.x86_64.*` images and mini-SWE-agent defaults to them. This
+host is arm64, and x86_64 emulation was **measured at 17.6× overhead** — 0.07 s native
+against 1.23 s emulated on CPU-bound Python. At that rate the run is roughly 100 hours,
+which is not a run.
+
+`sweb.eval.arm64.*` images exist for **28 of the 50**. mini-SWE-agent honours
+`instance["image_name"]` before its x86_64 default and `--subset` accepts a dataset path,
+so a local 28-row dataset carrying arm64 names fixes it with **no fork**.
+
+The filtering now compounds, and this is the honest accounting:
+
+```
+500  SWE-bench Verified
+ 50  the research programme's own subset      (non-random, selection criteria unknown)
+ 28  arm64 image published                    (an accident of what SWE-bench built)
+```
+
+Two non-random filters, the second having nothing to do with task difficulty but no reason
+to be independent of it either. **Any resolve rate from this describes the 28 and nothing
+else.** That is tolerable only because the goal is harvesting successful trajectories for
+distillation rather than estimating capability — and it is the second reason, after
+possible contamination, that the resolve rate must never be reported as a capability
+result.
+
+Diversity survives: 9 repositories (sympy 6, sphinx 5, pylint 5, pytest 3, django 3,
+astropy 3, scikit-learn 1, requests 1, flask 1). Lost entirely: xarray (6) and most of
+scikit-learn (5).
+
+## The RAM budget, which set the context window
+
+Three things want the same 24 GB: model weights, the KV cache, and a container VM.
+Measured, not guessed:
+
+| | |
+|---|---|
+| Metal reports | 25.8 GB total, 12.0 GB available |
+| KV budget at `VLLM_METAL_MEMORY_FRACTION=auto` (0.90) | **11.91 GB** (80,784 tokens) |
+| KV budget at `0.60` | **6.19 GB** (41,952 tokens) |
+| free after the change | 6.7 GB → **9.5 GB** |
+
+`--max-model-len` does not size the cache; `usable_metal × fraction − model − overhead`
+does. Capping the fraction is what makes room for containers.
+
+So the preflight's context threshold moved from 65,536 to **40,960** — the model's native
+pre-YaRN window. It moved because a measurement forced it, not to make the check pass, and
+the compensating control is capping a single observation at 20,000 chars
+(`agent.max_observation_length`, down from mini-SWE-agent's 100,000) so one file read cannot
+consume 60% of the window in a single step. That cap is itself a risk to resolve rate, and
+it is a forced trade rather than a tuned one.
 
 ## Preflight
 

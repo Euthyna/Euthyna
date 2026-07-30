@@ -17,11 +17,21 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 GATEWAY = "http://127.0.0.1:4517"
-INSTANCES = HERE / "swebench50.txt"
+INSTANCES = HERE / "swebench28-arm64.txt"
 MSWEA_ENV = Path.home() / "Library/Application Support/mini-swe-agent/.env"
-# SWE-bench observations are whole-file reads and test output. The toy task overran
-# 16384 *after* solving, so anything near that is guaranteed to truncate real work.
-MIN_CONTEXT = 65536
+# SWE-bench observations are whole-file reads and test output. The toy task overran 16384
+# *after* solving, so anything near that truncates real work.
+#
+# This was 65536 until the RAM budget was measured. On 24 GB the KV cache for a 65k window
+# leaves ~7 GB for a container VM, and SWE-bench containers were provisioned with 10 GB in
+# the research config — it does not fit. 40960 is the model's native pre-YaRN window and
+# costs 6.19 GB of KV, freeing 9.5 GB. The threshold moved because a measurement forced it,
+# not to make this check pass; the compensating control is capping a single observation
+# (MAX_OBSERVATION_CHARS below) so one file read cannot eat the window.
+MIN_CONTEXT = 40960
+# mini-swe-agent defaults to 100_000 chars (~25k tokens), which is 60% of a 40960 window in
+# one step. Capped in the runner instead.
+MAX_OBSERVATION_CHARS = 20000
 
 blockers: list = []
 warnings: list = []
@@ -86,8 +96,16 @@ def main() -> int:
           "litellm will abort the run on an unpriced local model")
 
     # --- containers -----------------------------------------------------------------
-    runtime = next((r for r in ("docker", "podman") if shutil.which(r)), None)
-    if check("container runtime available", bool(runtime), runtime or "neither docker nor podman"):
+    # Honour whatever mini-swe-agent is configured to call, not whatever is installed:
+    # MSWEA_DOCKER_EXECUTABLE=podman is how this host runs containers without Docker
+    # Desktop (which needs an admin password).
+    configured = "docker"
+    for line in env_text.splitlines():
+        if line.startswith("MSWEA_DOCKER_EXECUTABLE="):
+            configured = line.split("=", 1)[1].strip()
+    runtime = configured if shutil.which(configured) else None
+    if check("container runtime available", bool(runtime),
+              runtime or f"{configured!r} configured but not on PATH"):
         try:
             subprocess.run([runtime, "info"], capture_output=True, timeout=25, check=True)
             check(f"{runtime} daemon responding", True)
@@ -97,7 +115,7 @@ def main() -> int:
     # --- the work list --------------------------------------------------------------
     if check("instance list present", INSTANCES.exists(), str(INSTANCES)):
         ids = [x for x in INSTANCES.read_text().split() if x]
-        check("instance list is the 50-instance subset", len(ids) == 50, f"{len(ids)} ids")
+        check("instance list non-empty", len(ids) > 0, f"{len(ids)} arm64-available ids")
 
     # --- the tap actually records actions -------------------------------------------
     # A run that records no actions mines nothing, which is the failure that would only
