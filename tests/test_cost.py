@@ -44,3 +44,49 @@ def test_skew_is_not_flagged_when_they_agree():
                  "run_id": f"b{i}"}]
         costs[f"a{i}"], costs[f"b{i}"] = 10_000.0, 10_000.0 + d
     assert compare_cost(out, "control", "cand", costs).skewed is False
+
+
+def test_unpriced_pairs_are_counted_not_silently_vanished():
+    """A pair that vanished and a pair that never existed look identical in `pairs`."""
+    from euthyna.experiment.cost import compare_cost
+    out = []
+    for i in range(3):
+        out += [{"task": f"t{i}", "arm": "control", "rep": 0, "resolved": True,
+                 "run_id": f"a{i}"},
+                {"task": f"t{i}", "arm": "cand", "rep": 0, "resolved": True,
+                 "run_id": f"b{i}"}]
+    # only the first pair has costs; the other two are unpriceable
+    costs = {"a0": 100.0, "b0": 120.0}
+    r = compare_cost(out, "control", "cand", costs)
+    assert r.pairs == 1
+    assert r.unpriced == 2
+    assert r.dropped_discordant == 0        # they were concordant, just unpriced
+    assert r.as_dict()["unpriced"] == 2
+
+
+def test_no_costs_at_all_reports_unpriced_not_underpowered():
+    """Blaming the sample size for a plumbing failure sends someone to run more reps."""
+    from euthyna.experiment.cost import compare_cost
+    out = []
+    for i in range(8):
+        out += [{"task": f"t{i}", "arm": "control", "rep": 0, "resolved": True,
+                 "run_id": f"a{i}"},
+                {"task": f"t{i}", "arm": "cand", "rep": 0, "resolved": True,
+                 "run_id": f"b{i}"}]
+    r = compare_cost(out, "control", "cand", {})   # e.g. every window overlapped
+    assert r.pairs == 0 and r.unpriced == 8
+    assert r.verdict() == "UNPRICED"
+
+
+def test_underpowered_still_wins_when_pairs_exist():
+    from euthyna.experiment.cost import compare_cost
+    out, costs = [], {}
+    for i in range(3):
+        out += [{"task": f"t{i}", "arm": "control", "rep": 0, "resolved": True,
+                 "run_id": f"a{i}"},
+                {"task": f"t{i}", "arm": "cand", "rep": 0, "resolved": True,
+                 "run_id": f"b{i}"}]
+        costs[f"a{i}"], costs[f"b{i}"] = 100.0, 110.0
+    r = compare_cost(out, "control", "cand", costs)
+    assert r.pairs == 3 and r.unpriced == 0
+    assert r.verdict() == "UNDERPOWERED"

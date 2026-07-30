@@ -101,8 +101,8 @@ def _analyze(args) -> int:
     else:
         print("! no A/A sham arm in the outcomes: every verdict here is unfloored")
     if result.get("cost_primary"):
-        print(f"\n{'arm':<18} {'pairs':>6} {'dropped':>8} {'Δmedian':>10} {'Δrel':>7} "
-              f"{'p':>7} {'quality':>9}  verdict")
+        print(f"\n{'arm':<18} {'pairs':>6} {'dropped':>8} {'unpriced':>9} "
+              f"{'Δmedian':>10} {'Δrel':>7} {'p':>7} {'quality':>9}  verdict")
         for r in result["cost_primary"]:
             if not r["pairs"] and not r["dropped_discordant"]:
                 continue
@@ -110,10 +110,15 @@ def _analyze(args) -> int:
             rel = f"{r['relative_delta']:+.1%}" if r["relative_delta"] is not None else "—"
             p = f"{r['p_value']:.3f}" if r["p_value"] is not None else "—"
             mark = "*" if r.get("skewed") else " "
-            print(f"{r['arm_b'][:17]:<17}{mark} {r['pairs']:>6} {r['dropped_discordant']:>8} "
+            print(f"{r['arm_b'][:17]:<17}{mark} {r['pairs']:>6} "
+                  f"{r['dropped_discordant']:>8} {r.get('unpriced', 0):>9} "
                   f"{md:>10} {rel:>7} {p:>7} {r['resolve_guard']:>9}  {r['verdict']}")
         print("cost is compared only where BOTH arms solved the task; discordant pairs "
               "are dropped, not averaged in")
+        if any(r.get("unpriced") for r in result["cost_primary"]):
+            print("unpriced = both arms solved but at least one run had no cost: the pair "
+                  "is excluded, and counted here so a shrinking `pairs` column always has "
+                  "a stated reason")
         if getattr(args, "window_costs", False):
             mix = cost_basis(outcomes, dates)
             est = mix.get("estimated_under_no_cache_assumption", 0)

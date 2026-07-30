@@ -92,6 +92,10 @@ class CostResult:
     mean_delta: Optional[float]
     relative_delta: Optional[float]
     p_value: Optional[float]
+    # Pairs where both arms solved but at least one run had no cost. Counted separately
+    # because a vanished pair and a pair that never existed look identical in `pairs`,
+    # and the difference is the whole story when the cost source could not attribute.
+    unpriced: int = 0
     resolve_a: int = 0
     resolve_b: int = 0
     n_tasks: int = 0
@@ -122,6 +126,11 @@ class CostResult:
     def verdict(self, alpha: float = 0.05) -> str:
         if self.resolve_guard == "REGRESSED":
             return "QUALITY_REGRESSED"
+        if self.pairs == 0 and self.unpriced:
+            # Not "no effect" and not "too few runs": the runs happened and the cost
+            # source could not attribute them. Saying UNDERPOWERED here would blame the
+            # sample size for a plumbing failure.
+            return "UNPRICED"
         if self.p_value is None or self.pairs < 6:
             return "UNDERPOWERED"
         if self.p_value > alpha:
@@ -132,6 +141,7 @@ class CostResult:
         return {
             "arm_a": self.arm_a, "arm_b": self.arm_b, "pairs": self.pairs,
             "dropped_discordant": self.dropped_discordant,
+            "unpriced": self.unpriced,
             "median_delta": self.median_delta, "mean_delta": self.mean_delta,
             "relative_delta": self.relative_delta, "p_value": self.p_value,
             "resolve_a": self.resolve_a, "resolve_b": self.resolve_b,
@@ -145,6 +155,7 @@ def compare_cost(outcomes: list, arm_a: str, arm_b: str, costs: dict) -> CostRes
     index = {(r["task"], r["arm"], r["rep"]): r for r in outcomes}
     cells = sorted({(r["task"], r["rep"]) for r in outcomes})
     deltas, base = [], []
+    unpriced = 0
     dropped = res_a = res_b = n_tasks = 0
     for task, rep in cells:
         a, b = index.get((task, arm_a, rep)), index.get((task, arm_b, rep))
@@ -158,6 +169,7 @@ def compare_cost(outcomes: list, arm_a: str, arm_b: str, costs: dict) -> CostRes
             continue
         ca, cb = cost_of(a, costs), cost_of(b, costs)
         if ca is None or cb is None:
+            unpriced += 1
             continue
         deltas.append(cb - ca)
         base.append(ca)
@@ -169,7 +181,8 @@ def compare_cost(outcomes: list, arm_a: str, arm_b: str, costs: dict) -> CostRes
         mean = round(sum(deltas) / n, 1)
         rel = round(sum(deltas) / sum(base), 4) if sum(base) else None
     return CostResult(arm_a=arm_a, arm_b=arm_b, pairs=len(deltas),
-                      dropped_discordant=dropped, median_delta=median, mean_delta=mean,
+                      dropped_discordant=dropped, unpriced=unpriced,
+                      median_delta=median, mean_delta=mean,
                       relative_delta=rel, p_value=wilcoxon_signed_rank(deltas),
                       resolve_a=res_a, resolve_b=res_b, n_tasks=n_tasks)
 

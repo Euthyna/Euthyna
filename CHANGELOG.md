@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Fixed
+- **Pairs that could not be priced vanished from `compare_cost` without a count.** Both
+  arms solved, but a run had no cost, so the pair was skipped — `pairs` shrank and
+  `dropped_discordant` did not move, leaving no stated reason. With the overlap fix above
+  this became load-bearing: every pair can go unpriced at once, and the output would have
+  read `pairs: 0, dropped: 0`, indistinguishable from having no data. Now counted as
+  `unpriced`, shown as its own column, and given the verdict **`UNPRICED`** rather than
+  `UNDERPOWERED` — blaming the sample size for a plumbing failure sends someone to run
+  more reps that cannot help.
 - **`window_costs` double-counted every call shared by two overlapping run windows.**
   Window attribution assumes one call belongs to one run, which holds only for serial
   runs; with parallel workers the windows interleave and a shared call was counted in
