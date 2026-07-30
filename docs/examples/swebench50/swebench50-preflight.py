@@ -8,7 +8,6 @@ seconds, and the whole point of the instrument is to not discover this afterward
 Exit 0 = safe to run. Exit 1 = at least one blocker. Warnings do not block.
 """
 import json
-import os
 import shutil
 import subprocess
 import sys

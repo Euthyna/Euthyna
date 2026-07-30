@@ -53,8 +53,9 @@ def test_overlapping_run_windows_are_left_unpriced_not_double_counted(tmp_path, 
     assert window_costs(serial, ["2026-01-01"]) == {"a": 0, "b": 1050.0}
 
 
-def test_touching_windows_are_not_treated_as_overlapping():
-    """One run ending exactly when the next starts is serial, not parallel."""
+def test_windows_touching_at_a_boundary_count_as_overlapping():
+    """A call landing exactly on the shared instant belongs to either run, so both are
+    ambiguous. Erring toward unpriced is the direction that cannot inflate a result."""
     from euthyna.experiment.analyze import overlapping_runs
     assert overlapping_runs([{"run_id": "a", "started_at": 0.0, "ended_at": 10.0},
                              {"run_id": "b", "started_at": 10.0, "ended_at": 20.0}]) == {"a", "b"}
