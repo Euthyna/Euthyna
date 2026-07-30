@@ -519,3 +519,62 @@ def test_anthropic_reused_block_index_keeps_both_calls_distinct():
         'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"command\\":\\"sed y\\"}"}}',
     ])
     assert extract_actions("anthropic", None, sse) == ["bash:grep", "bash:sed"]
+
+
+# --- privacy: only a bare command name may ever reach the ledger ----------------------
+
+def test_env_assignment_prefix_does_not_leak_its_value():
+    """Where secrets actually live. mini-swe-agent's own prompt template tells the agent
+    to write `MY_ENV_VAR=MY_VALUE cd /path && ...`, so this is routine input."""
+    from euthyna.gateway.taps import _refine_action
+    got = _refine_action("bash", {"command": "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI grep foo ."})
+    assert got == "bash:grep"
+    assert "wJalrX" not in got
+    got = _refine_action("bash", {"command": "A=1 B=2 C=3 sed -i s/x/y/ f.py"})
+    assert got == "bash:sed"
+
+
+def test_a_token_that_is_not_a_command_name_yields_no_detail():
+    """Allowlist, not denylist: an unrecognised shape is data and gets discarded."""
+    from euthyna.gateway.taps import _refine_action
+    for cmd in ["curl?token=ghp_AbCdEf123456789",
+                "aGVsbG8gd29ybGQgc2VjcmV0IHRva2VuIGRvbnQgbGVhaw==",
+                "x" * 40,
+                "--flag-only"]:
+        assert _refine_action("bash", {"command": cmd}) == "bash", cmd
+
+
+def test_ordinary_command_names_still_survive():
+    from euthyna.gateway.taps import _refine_action
+    for cmd, want in [("grep -rn foo .", "bash:grep"),
+                      ("python3 -m pytest -q", "bash:python3"),
+                      ("apt-get install -y curl", "bash:apt-get"),
+                      ("/usr/bin/grep pattern .", "bash:grep"),
+                      ('"grep" -rn x .', "bash:grep"),
+                      ("g++ -o a a.cc", "bash:g++")]:
+        assert _refine_action("bash", {"command": cmd}) == want, cmd
+
+
+def test_no_command_at_all_degrades_to_the_tool_name():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("bash", {"command": "   "}) == "bash"
+    assert _refine_action("bash", {"command": "FOO=1"}) == "bash"   # assignment only
+    assert _refine_action("bash", {}) == "bash"
+
+
+def test_a_credential_never_survives_any_position_in_the_line():
+    """Property check across positions rather than one hand-picked case."""
+    from euthyna.gateway.taps import _refine_action
+    secret = "AKIAIOSFODNN7EXAMPLE"
+    lines = [
+        f"grep -rn {secret} /home/u/.aws/credentials",
+        f"TOKEN={secret} python3 deploy.py",
+        f"curl -H 'Authorization: {secret}' https://api.example.com",
+        f"echo {secret} >> .env",
+        f"{secret}",
+        f"env AWS_KEY={secret} aws s3 ls",
+    ]
+    for line in lines:
+        got = _refine_action("bash", {"command": line})
+        assert secret not in got, (line, got)
+        assert got.count(":") <= 1 and len(got) <= 40, (line, got)

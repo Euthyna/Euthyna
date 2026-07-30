@@ -3,6 +3,20 @@
 ## [Unreleased]
 
 ### Fixed
+- **Command arguments could leak into the ledger through an env-assignment prefix.** The
+  action tap kept the first whitespace token of a shell command as the verb, so
+  `AWS_SECRET_ACCESS_KEY=... grep foo .` recorded the *assignment*, secret included. Not
+  hypothetical: mini-swe-agent's own prompt template instructs the agent to write
+  `MY_ENV_VAR=MY_VALUE cd /path && ...`. Also leaked when the whole command was a single
+  token with no spaces (a URL with a query token, a base64 blob).
+  Leading `VAR=VALUE` prefixes are now skipped to find the real verb, and the verb must
+  match an **allowlist** shape — at most 16 characters and containing a lowercase letter,
+  since command names are lowercase by convention while keys and env-var names are upper.
+  Anything else records as the bare tool name: less detail, never content. A property test
+  sweeps a credential across six positions in the line; it was that test, not the
+  hand-picked cases, that caught a line consisting of nothing but an access key.
+  Residual risk is documented in the source rather than papered over: a short all-lowercase
+  high-entropy token still passes.
 - **Pairs that could not be priced vanished from `compare_cost` without a count.** Both
   arms solved, but a run had no cost, so the pair was skipped — `pairs` shrank and
   `dropped_discordant` did not move, leaving no stated reason. With the overlap fix above

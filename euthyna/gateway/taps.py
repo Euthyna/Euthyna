@@ -197,13 +197,56 @@ _COMMAND_TOOLS = {"bash", "shell", "terminal", "run_command", "execute_bash",
 _COMMAND_ARG_KEYS = ("command", "cmd", "script", "shell_command")
 
 
+# A plausible command name, and nothing else, may be recorded. This is an ALLOWLIST on
+# purpose: anything not shaped like a bare command name is data, and data does not go in
+# the ledger.
+#
+# Two constraints beyond the character set, both there to keep a credential out:
+#
+#   <= 16 chars — every command an agent actually runs is far shorter (grep, sed, python3,
+#   pytest, git); `docker-compose` at 14 is about the longest real one. Most secrets are
+#   longer. A genuinely longer command name records as bare `bash`: less detail, never a
+#   leak.
+#
+#   at least one lowercase letter — Unix command names are lowercase by overwhelming
+#   convention, while env-var names, constants and access keys are upper. This is what
+#   rejects a line consisting of nothing but `AKIAIOSFODNN7EXAMPLE`, which the character
+#   set alone accepts because it is indistinguishable from a command name by shape.
+#
+# Residual risk, stated rather than papered over: a short all-lowercase high-entropy token
+# still passes. The surface is small and the alternative — a maintained list of command
+# names — breaks on every real toolchain.
+_VERB = re.compile(r"\A(?=[A-Za-z0-9_.+-]{1,16}\Z)(?=.*[a-z])[A-Za-z0-9][A-Za-z0-9_.+-]*\Z")
+# Leading VAR=VALUE assignments are shell prefix syntax, not the verb — and they are
+# exactly where secrets appear. mini-swe-agent's own prompt template tells the agent to
+# write `MY_ENV_VAR=MY_VALUE cd /path && ...`, so this is a routine input, not an edge case.
+_ENV_ASSIGN = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _command_verb(command: str) -> Optional[str]:
+    """The command name a shell line invokes, or None when it cannot be named safely.
+
+    Only a bare command name is ever returned. Everything else in the line — paths,
+    patterns, source text, credentials — is the user's data and is discarded. When the
+    first meaningful token does not look like a command name, this returns None rather
+    than guessing, because a wrong guess here writes user data into the ledger.
+    """
+    for token in command.strip().split():
+        if _ENV_ASSIGN.match(token):
+            continue                      # VAR=VALUE prefix: keep looking for the verb
+        token = token.strip("'\"")       # a quoted verb is still that verb
+        token = token.split("/")[-1]      # /usr/bin/grep and grep are one action
+        return token if _VERB.match(token) else None
+    return None
+
+
 def _refine_action(name: str, arguments) -> str:
     """``tool`` normally, ``tool:verb`` for shell-style tools.
 
-    Only the FIRST token of the command is kept. That token is what distinguishes one
-    ritual from another — ``bash:grep`` from ``bash:sed`` — and everything after it is
-    the user's data: paths, patterns, source text. Recording the verb and discarding the
-    rest is the whole of what flow mining needs, so the tap takes only that.
+    Only the command NAME is kept. That name is what distinguishes one ritual from
+    another — ``bash:grep`` from ``bash:sed`` — and everything else in the line is the
+    user's data. When the name cannot be established safely the bare tool name is
+    returned, so the tap degrades to less detail rather than to leaked content.
     """
     if name not in _COMMAND_TOOLS:
         return name
@@ -217,10 +260,7 @@ def _refine_action(name: str, arguments) -> str:
     for key in _COMMAND_ARG_KEYS:
         raw = arguments.get(key)
         if isinstance(raw, str) and raw.strip():
-            verb = raw.strip().split()[0]
-            # A leading env assignment or absolute path is not the verb; keep the
-            # basename so `/usr/bin/grep` and `grep` are the same action.
-            verb = verb.split("/")[-1]
+            verb = _command_verb(raw)
             return f"{name}:{verb}" if verb else name
     return name
 
