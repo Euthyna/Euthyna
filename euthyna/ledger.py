@@ -75,6 +75,60 @@ def cost_quality(cost: dict) -> str:
     return "exact"
 
 
+# A verb repeated this many times in a row stops being a search and becomes a loop. Two
+# identical actions are ordinary — narrow a grep, list another directory. The third is
+# where the evidence says progress has stopped: in a 28-instance SWE-bench corpus, runs of
+# 3+ accounted for 68% of all spend, and the longest were 33 identical greps and 30
+# identical cds against a prompt that explicitly says cd does not persist.
+REPETITION_RUN = 3
+
+
+def repetition_waste(rows: list[dict]) -> dict:
+    """Spend sitting inside runs of the same action repeated until it stopped helping.
+
+    Charged from the third occurrence onward: the first two are the ordinary shape of
+    narrowing a search, and everything after them is the agent going in circles. Rows
+    without recorded actions are skipped rather than assumed innocent — a call whose
+    response could not be read is unknown, not clean.
+    """
+    by_session: dict = {}
+    for row in rows:
+        actions = row.get("actions")
+        if isinstance(actions, list):
+            by_session.setdefault(row.get("session") or "?", []).append(row)
+
+    total_actions = wasted_actions = 0
+    total_cost = wasted_cost = 0.0
+    longest = ("", 0)
+    for sid, session_rows in by_session.items():
+        session_rows.sort(key=lambda r: r.get("ts") or "")
+        flat = [(a, step_cost(r.get("cost") or {}) or 0.0)
+                for r in session_rows for a in (r.get("actions") or [])]
+        run_verb, run_len = None, 0
+        for action, cost in flat:
+            total_actions += 1
+            total_cost += cost
+            if action == run_verb:
+                run_len += 1
+            else:
+                run_verb, run_len = action, 1
+            if run_len > longest[1]:
+                longest = (action, run_len)
+            if run_len >= REPETITION_RUN:
+                wasted_actions += 1
+                wasted_cost += cost
+    return {
+        "actions": total_actions,
+        "repeated_actions": wasted_actions,
+        "repeated_fraction": (wasted_actions / total_actions) if total_actions else None,
+        "cost_tok_eq": round(total_cost, 1),
+        "repeated_cost_tok_eq": round(wasted_cost, 1),
+        "repeated_cost_fraction": (wasted_cost / total_cost) if total_cost else None,
+        "longest_run": {"action": longest[0], "length": longest[1]} if longest[1] else None,
+        "sessions_with_actions": len(by_session),
+    }
+
+
 def observed_vocabulary(rows: list[dict]) -> set:
     """Every action name this traffic actually emitted.
 

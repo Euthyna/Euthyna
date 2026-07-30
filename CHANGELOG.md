@@ -38,6 +38,12 @@
   render as the last one twice.
 
 ### Added
+- **`repetition` line in `euthyna report`** — spend sitting inside runs of the same command
+  repeated until it stopped helping, charged from the third occurrence (the first two are
+  the ordinary shape of narrowing a search). On a 28-instance SWE-bench corpus this is
+  **62% of actions and 68% of all spend**, with a longest run of 39 identical `find` calls.
+  Measured per session, never across, and rows without recorded actions are skipped rather
+  than assumed innocent.
 - **mini-swe-agent integration** in `docs/SETUP.md` — zero fork and, unlike opencode,
   deliberately **no session plugin**. mini-swe-agent builds its model per instance inside
   `process_instance()`, so a per-instance header would mean patching the runner, and a
