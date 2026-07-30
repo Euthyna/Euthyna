@@ -125,6 +125,28 @@ search and three identical greps that are a stuck loop are the same string.
 **So a signature needs a progress predicate, not just an action pattern.** That is a design
 gap in RFC-002 §6, and it was invisible until a real corpus contained both cases.
 
+## Sizing the intervention the data points at
+
+If a guard interrupted every same-verb run once it stopped making progress, what is the
+most it could recover? Over 1,470 calls and 12,965,552 tok-eq:
+
+| | |
+|---|---|
+| calls whose action was the 3rd+ of a run | 836 — **57%** |
+| their direct cost | 8,009,679 tok-eq — **62%** |
+| mean step cost | 8,820 tok-eq |
+| what eliminating one step *actually* saves | **9,516** (+8%, from the tokens it would have added to every later prefix) |
+| **ceiling if every 3rd+ repetition vanished** | **7,955,234 tok-eq — 61% of the corpus** |
+
+> This is a **ceiling, not a forecast**. It assumes the repetitions vanish and nothing
+> replaces them. A real guard makes the agent do something else instead, and that something
+> costs — so the achievable saving is strictly less. It is the right number for deciding
+> whether the intervention is worth designing, and the wrong number to quote as a result.
+
+Set against it: a skill compressing a three-step ritual competes for single-digit percent,
+and [the section above](#the-apparent-ritual-does-not-survive-inspection) shows the ritual
+is not there to compress.
+
 ## What this says about the next step
 
 The corpus is rich but the interventions it suggests are inverted from the plan. A skill
