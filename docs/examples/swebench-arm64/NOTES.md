@@ -4,18 +4,33 @@
 mini-SWE-agent against arm64 containers, every call through the gateway. Protocol and its
 caveats: [swebench50/NOTES.md](../swebench50/NOTES.md).
 
-**The headline is not the resolve rate. It is that 68% of everything spent went into
+**The headline is not the resolve rate. It is that ~63% of everything spent went into
 repeating the same command.**
+
+> **Two corrections to earlier drafts of this document, both mine.**
+>
+> 1. The figures first published here were 62% of actions and 68% of spend. They came from
+>    an exploratory script that filtered to `sessions with >= 5 actions` so the trace
+>    printout would be readable, and I carried that number forward as if it were the corpus
+>    figure. Short sessions are real spend and belong in the denominator. Caught by
+>    cross-checking the shipped `repetition_waste` against an independent recomputation —
+>    re-running my own script would never have found it.
+> 2. The corpus contains **duplicated work**. The first runner survived the machine sleeping
+>    and completed all 28 instances on its own; I mistook a slow run for a dead one and
+>    launched a second, which re-ran 14 of them. Rates are unaffected — see below — but
+>    totals cover 44 sessions for 28 instances.
 
 ## Outcomes
 
+One complete pass over all 28:
+
 | exit status | count |
 |---|---|
-| `LimitsExceeded` (hit the 40-step budget) | 18 |
+| `LimitsExceeded` (hit the 40-step budget) | **22** |
+| `RepeatedFormatError` (stopped emitting actions mid-run) | 3 |
 | `Submitted` | 3 |
-| `RepeatedFormatError` (stopped emitting actions mid-run) | 2 |
 
-One instance of 23 produced a non-empty patch. Whether it *resolves* needs the SWE-bench
+One instance of 28 produced a non-empty patch. Whether it *resolves* needs the SWE-bench
 evaluator, which has not been run — so **at most 1**, and the number is reported as
 "produced a patch", not as a resolve rate.
 
@@ -24,12 +39,25 @@ stops producing well-formed actions at all.
 
 ## The waste, measured
 
-Across 35 sessions and 1,282 recorded actions:
+Across 44 sessions and 1,551 recorded actions (28 instances, 14 of them run twice):
 
 | | |
 |---|---|
-| actions inside a 3+ identical-verb run (beyond the 2nd) | **797 of 1,282 — 62%** |
-| token-equivalents spent on them | **7,297,871 of 10,791,323 — 68%** |
+| actions inside a 3+ identical-verb run (beyond the 2nd) | **58.8%** |
+| token-equivalents spent on them | **63.2%** |
+
+The duplication does not move this. Computed separately on the two windows, which share no
+sessions:
+
+| window | sessions | actions | repeated | spend |
+|---|---|---|---|---|
+| before the duplicate launch | 15 | 463 | 62.9% | 66.6% |
+| after it | 30 | 1,088 | 57.0% | 61.8% |
+| whole corpus | 44 | 1,551 | **58.8%** | **63.2%** |
+
+Two independent samples land in a 57–63% band, so the rate is a property of the workload
+rather than of the accident. **Totals, by contrast, include duplicated effort and overstate
+a single 28-instance pass by roughly half.**
 
 The most frequent flows in the entire corpus are degenerate:
 
@@ -151,7 +179,7 @@ is not there to compress.
 
 The corpus is rich but the interventions it suggests are inverted from the plan. A skill
 compressing a 3-step ritual competes for a few percent. A guard that interrupts a
-same-verb run once it stops making progress is competing for **68%**.
+same-verb run once it stops making progress is competing for **~63%**.
 
 That is a different kind of intervention — waste elimination rather than ritual compression
 — and the cost-primary harness measures it the same way, on tasks where the outcome is held
