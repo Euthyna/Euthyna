@@ -13,6 +13,12 @@
 # hours. mini-swe-agent honours instance["image_name"] before its x86_64 default, so a
 # local dataset carrying arm64 names fixes it with no fork.
 #
+# Why the XML text format and not tool calls: SWE-Lego-Qwen3-8B was SFT'd on OpenHands
+# trajectories and, given mini-swe-agent's tool-calling prompt, writes prose with markdown
+# headings instead of calling the tool — three format errors and the run aborts
+# (RepeatedFormatError). It emits <mswea_bash_command> without trouble. So swebench_xml.yaml
+# with litellm_textbased, and the gateway's tap parses the markup out of the response text.
+#
 #   ./swebench-arm64.sh                    # preflight, then run
 #   ./swebench-arm64.sh --preflight-only
 #   WORKERS=2 STEP_LIMIT=40 ./swebench-arm64.sh
@@ -55,7 +61,8 @@ $MINI swebench \
   --model "$MODEL" \
   --environment-class docker \
   --output "$OUT" \
-  -c swebench.yaml \
+  --model-class litellm_textbased \
+  -c swebench_xml.yaml \
   -c model.model_kwargs.temperature=0 \
   -c agent.step_limit=$STEP_LIMIT \
   -c 'model.model_kwargs.max_tokens=2048' \

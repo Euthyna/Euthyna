@@ -578,3 +578,57 @@ def test_a_credential_never_survives_any_position_in_the_line():
         got = _refine_action("bash", {"command": line})
         assert secret not in got, (line, got)
         assert got.count(":") <= 1 and len(got) <= 40, (line, got)
+
+
+# --- text-format harnesses (pre-tool-call action markup) ------------------------------
+
+def test_xml_action_markup_is_recorded_when_there_is_no_tool_call():
+    """mini-swe-agent's XML config is the only format some SFT'd models reliably emit."""
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"content":
+        "Let me look.\n\n<mswea_bash_command>ls -la requests/</mswea_bash_command>"}}]}
+    assert extract_actions("openai", body, None) == ["bash:ls"]
+
+
+def test_fenced_action_markup_is_recorded():
+    from euthyna.gateway.taps import extract_actions
+    for content, want in [
+        ("THOUGHT: check\n\n```mswea_bash_command\ngrep -rn foo .\n```", ["bash:grep"]),
+        ("```bash\nsed -i s/a/b/ f.py\n```", ["bash:sed"]),
+        ("```sh\npython3 -m pytest\n```", ["bash:python3"]),
+    ]:
+        assert extract_actions("openai", {"choices": [{"message": {"content": content}}]},
+                               None) == want, content
+
+
+def test_a_tool_call_always_wins_over_text_markup():
+    """Otherwise a harness using tool calls could be misread from stray prose."""
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {
+        "tool_calls": [{"function": {"name": "bash", "arguments": '{"command":"ls"}'}}],
+        "content": "<mswea_bash_command>rm -rf /</mswea_bash_command>"}}]}
+    assert extract_actions("openai", body, None) == ["bash:ls"]
+
+
+def test_text_markup_gets_the_same_privacy_minimisation():
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"content":
+        "<mswea_bash_command>AWS_KEY=wJalrXUtnFEMI grep x .</mswea_bash_command>"}}]}
+    got = extract_actions("openai", body, None)
+    assert got == ["bash:grep"] and "wJalrX" not in got[0]
+
+
+def test_prose_with_no_action_is_empty_not_none():
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"content": "just prose, no action here"}}]}
+    assert extract_actions("openai", body, None) == []
+
+
+def test_streamed_text_format_is_reassembled_before_parsing():
+    """The command can be split across deltas; parsing per-chunk would miss it."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"content":"Let me check.\\n\\n<mswea_bash_"}}]}',
+        'data: {"choices":[{"delta":{"content":"command>grep -rn x .</mswea_bash_command>"}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["bash:grep"]

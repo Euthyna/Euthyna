@@ -265,6 +265,36 @@ def _refine_action(name: str, arguments) -> str:
     return name
 
 
+# Harnesses that predate tool calling ask the model to emit the command in markup and
+# parse it out of the response text. mini-swe-agent still ships three such configs
+# (`<mswea_bash_command>`, a ```mswea_bash_command fence, a plain ```bash fence) and its
+# XML one is the only format some SFT'd models will reliably produce — SWE-Lego-Qwen3-8B
+# writes prose instead of a tool call under the tool-calling config, but emits the XML tag
+# without trouble. A tap that only reads `tool_calls` records nothing for those runs.
+_TEXT_ACTIONS = [
+    re.compile(r"<mswea_bash_command>(.*?)</mswea_bash_command>", re.S),
+    re.compile(r"```(?:mswea_bash_command|bash|sh|shell)\n(.*?)```", re.S),
+]
+
+
+def _text_actions(content: Optional[str]) -> list:
+    """Commands a response asked for in markup rather than through a tool call.
+
+    Same minimisation as the tool-call path: only the command name survives. The order is
+    the order the commands appear in the text.
+    """
+    if not content:
+        return []
+    out = []
+    for pattern in _TEXT_ACTIONS:
+        for match in pattern.finditer(content):
+            verb = _command_verb(match.group(1))
+            out.append(f"bash:{verb}" if verb else "bash")
+        if out:
+            break        # first format that matches wins; do not double-count a fence
+    return out
+
+
 def extract_actions(dialect: str, body: Optional[dict],
                     sse_text: Optional[str]) -> Optional[list]:
     """The tool calls this response actually made, in order.
@@ -298,6 +328,9 @@ def _openai_actions_body(body: dict) -> list:
             fn = call.get("function") or {}
             if fn.get("name"):
                 out.append(_refine_action(fn["name"], fn.get("arguments")))
+        if not out:
+            # No tool call: the harness may be parsing the command out of the text.
+            out.extend(_text_actions(message.get("content")))
     return out
 
 
@@ -328,7 +361,13 @@ def _openai_actions_stream(sse_text: str) -> list:
                     slot["args"] += fn["arguments"]
     named = [s for s in slots if s["name"]]
     named.sort(key=lambda s: s["index"])   # stable: ties keep creation order
-    return [_refine_action(s["name"], s["args"]) for s in named]
+    if named:
+        return [_refine_action(s["name"], s["args"]) for s in named]
+    # Streamed text-format response: reassemble the content and parse markup from it.
+    text = "".join(
+        (choice.get("delta") or {}).get("content") or ""
+        for data in _sse_datas(sse_text) for choice in data.get("choices") or [])
+    return _text_actions(text)
 
 
 def _anthropic_actions_body(body: dict) -> list:
@@ -336,6 +375,10 @@ def _anthropic_actions_body(body: dict) -> list:
     for block in body.get("content") or []:
         if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name"):
             out.append(_refine_action(block["name"], block.get("input")))
+    if not out:
+        for block in body.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                out.extend(_text_actions(block.get("text")))
     return out
 
 
