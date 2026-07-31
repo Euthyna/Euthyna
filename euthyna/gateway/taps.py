@@ -288,6 +288,20 @@ _VERB = re.compile(r"\A(?=[A-Za-z0-9_.+-]{1,16}\Z)(?=.*[a-z])[A-Za-z0-9][A-Za-z0
 _ENV_ASSIGN = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
 
 
+# A shell agent working in a repo prefixes almost everything with a directory change, so
+# taking the first token of the line names the navigation instead of the work. On the
+# 28-instance SWE-bench corpus this was not a corner case: 339 of 1,004 commands (33.8%)
+# recorded as `bash:cd`, and every one of them was `cd <dir> && <the actual command>`. A
+# third of the vocabulary stood for nothing, and any flow signature mined from it keyed on
+# the wrong verb.
+#
+# Splitting on the operators is safe for this purpose because only the command NAME is
+# ever kept from whichever segment wins — the same allowlist applies to it, so a `&&`
+# inside a quoted argument can at worst cost detail, never leak a fragment of data.
+_NAVIGATION_PREFIX = re.compile(r"&&|\|\||;")
+_NAVIGATION_VERBS = {"cd", "pushd", "popd", "export", "source", "set", "unset"}
+
+
 def _command_verb(command: str) -> Optional[str]:
     """The command name a shell line invokes, or None when it cannot be named safely.
 
@@ -296,7 +310,23 @@ def _command_verb(command: str) -> Optional[str]:
     first meaningful token does not look like a command name, this returns None rather
     than guessing, because a wrong guess here writes user data into the ledger.
     """
-    for token in command.strip().split():
+    for segment in _NAVIGATION_PREFIX.split(command.strip()):
+        verb = _segment_verb(segment)
+        if verb is None:
+            continue                      # unnameable segment: try the next one
+        if verb in _NAVIGATION_VERBS:
+            continue                      # `cd /repo && grep ...` is a grep, not a cd
+        return verb
+    # Nothing but navigation: `cd /repo` really is a cd. Report the first nameable verb.
+    for segment in _NAVIGATION_PREFIX.split(command.strip()):
+        verb = _segment_verb(segment)
+        if verb is not None:
+            return verb
+    return None
+
+
+def _segment_verb(segment: str) -> Optional[str]:
+    for token in segment.strip().split():
         if _ENV_ASSIGN.match(token):
             continue                      # VAR=VALUE prefix: keep looking for the verb
         token = token.strip("'\"")       # a quoted verb is still that verb

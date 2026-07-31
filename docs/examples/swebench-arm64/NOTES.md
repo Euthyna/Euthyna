@@ -88,10 +88,20 @@ Two independent samples land in a 57–63% band, so the rate is a property of th
 rather than of the accident. **Totals, by contrast, include duplicated effort and overstate
 a single 28-instance pass by roughly half.**
 
+> **Correction (2026-07-30).** The `cd` entries below are an artefact of a defect in
+> `_command_verb`, not a behaviour of the agent. It named a shell line by its first token,
+> so `cd /repo && grep -rn foo` recorded as `bash:cd`. On this corpus **339 of 1,004
+> commands (33.8%) had the wrong verb recorded**, and every one was a compound. With the
+> fix, `cd` drops to **0** and the work it was hiding appears: `python` 38 -> 112,
+> `python3` 2 -> 74, `grep` 307 -> 384, `sed` 20 -> 56, and `rm` and `cp` show up at all
+> (0 -> 17 and 0 -> 9). **The `('cd','cd','cd')` flow below does not exist.** The
+> `('grep','grep','grep')` count is understated for the same reason. Command-keyed figures
+> are unaffected, since they never went through the verb.
+
 The most frequent flows in the entire corpus are degenerate:
 
 ```
-('cd',   'cd',   'cd')     316 occurrences across 19 sessions
+('cd',   'cd',   'cd')     316 occurrences across 19 sessions   <- ARTEFACT, see above
 ('grep', 'grep', 'grep')   232 occurrences across 22 sessions
 ('find', 'find', 'find')    75 occurrences across 12 sessions
 ('mkdir','mkdir','mkdir')   68 occurrences across  3 sessions

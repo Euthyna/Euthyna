@@ -729,10 +729,10 @@ def test_openhands_prompt_based_tool_calls_are_recorded():
     indistinguishable, downstream, from a model that genuinely did nothing."""
     from euthyna.gateway.taps import extract_actions
     assert extract_actions("openai", _content(_OH_VIEW), None) == ["str_replace_editor:view"]
-    assert extract_actions("openai", _content(_OH_BASH), None) == ["execute_bash:cd"]
+    assert extract_actions("openai", _content(_OH_BASH), None) == ["execute_bash:pytest"]
     # order preserved across several blocks in one response
     assert extract_actions("openai", _content(_OH_VIEW + _OH_BASH), None) == [
-        "str_replace_editor:view", "execute_bash:cd"]
+        "str_replace_editor:view", "execute_bash:pytest"]
 
 
 def test_a_missing_closing_tag_does_not_silently_swallow_the_action():
@@ -758,3 +758,36 @@ def test_the_other_harnesses_text_formats_still_parse():
         "openai", _content("<mswea_bash_command>grep -rn x</mswea_bash_command>"), None
     ) == ["bash:grep"]
     assert extract_actions("openai", _content("prose with no tool call"), None) == []
+
+
+def test_a_directory_change_does_not_stand_in_for_the_real_command():
+    """A shell agent working in a repo prefixes almost everything with `cd`. Naming the
+    line by its first token records the navigation instead of the work: on the 28-instance
+    SWE-bench corpus 339 of 1004 commands (33.8%) recorded as bash:cd, and every one was
+    a compound. `cd` fell to 0 once this was fixed; python went 38 -> 112."""
+    from euthyna.gateway.taps import _command_verb
+    assert _command_verb("cd /repo && grep -rn foo") == "grep"
+    assert _command_verb("cd /a && sed -i s/x/y/ f.py") == "sed"
+    assert _command_verb("cd /a; ls -la") == "ls"
+    assert _command_verb("cd /a || echo fail") == "echo"
+    assert _command_verb("pushd /a && pytest -x") == "pytest"
+    assert _command_verb("MY_VAR=1 cd /a && pytest") == "pytest"
+    assert _command_verb("cd /a && /usr/bin/python3 -m pytest") == "python3"
+
+
+def test_a_bare_navigation_command_is_still_reported_as_one():
+    """The point is to skip navigation that PREFIXES work, not to lose it when it is the
+    work — otherwise `cd` becomes unnameable rather than merely uninteresting."""
+    from euthyna.gateway.taps import _command_verb
+    assert _command_verb("cd /repo") == "cd"
+    assert _command_verb("cd") == "cd"
+    assert _command_verb("cd /a && cd /b") == "cd"
+
+
+def test_skipping_a_segment_still_cannot_put_data_in_the_ledger():
+    """Each segment goes through the same allowlist, so advancing past `cd` can cost
+    detail but can never promote a fragment of user data into an action name."""
+    from euthyna.gateway.taps import _command_verb
+    assert _command_verb("cd /a && AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI") == "cd"
+    assert _command_verb("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI") is None
+    assert _command_verb("cd /a && ./THIS_IS_A_VERY_LONG_NAME_INDEED") == "cd"
