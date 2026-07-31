@@ -100,19 +100,36 @@ def repetition_waste(rows: list[dict]) -> dict:
     total_actions = wasted_actions = 0
     total_cost = wasted_cost = 0.0
     longest = ("", 0)
+    digest_keyed = 0
+    epochs: set = set()
     for sid, session_rows in by_session.items():
         session_rows.sort(key=lambda r: r.get("ts") or "")
-        flat = [(a, step_cost(r.get("cost") or {}) or 0.0)
-                for r in session_rows for a in (r.get("actions") or [])]
-        run_verb, run_len = None, 0
-        for action, cost in flat:
+        # Key on the argument digest when the row carries one. Without it the key is the
+        # verb, and `bash:grep` cannot distinguish a search being narrowed from a loop
+        # going nowhere — which overstated this measure by 2.5x on the SWE-bench corpus
+        # (59.5% keyed on the verb against 24.0% keyed on the command).
+        flat = []
+        for r in session_rows:
+            actions = r.get("actions") or []
+            digests = r.get("action_digests") or []
+            cost = step_cost(r.get("cost") or {}) or 0.0
+            if r.get("digest_epoch"):
+                epochs.add(r["digest_epoch"])
+            for i, a in enumerate(actions):
+                d = digests[i] if i < len(digests) else None
+                if d:
+                    digest_keyed += 1
+                flat.append(((a, d) if d else a, a, cost))
+        run_key, run_len = None, 0
+        for key, action, cost in flat:
             total_actions += 1
             total_cost += cost
-            if action == run_verb:
+            if key == run_key:
                 run_len += 1
             else:
-                run_verb, run_len = action, 1
+                run_key, run_len = key, 1
             if run_len > longest[1]:
+                # The verb, not the key: the digest is an identity, not something to report.
                 longest = (action, run_len)
             if run_len >= REPETITION_RUN:
                 wasted_actions += 1
@@ -126,6 +143,18 @@ def repetition_waste(rows: list[dict]) -> dict:
         "repeated_cost_fraction": (wasted_cost / total_cost) if total_cost else None,
         "longest_run": {"action": longest[0], "length": longest[1]} if longest[1] else None,
         "sessions_with_actions": len(by_session),
+        # Which granularity actually got used. "verb" cannot tell a narrowing search from
+        # a loop and reads high; on the SWE-bench corpus it read 2.5x the command-keyed
+        # figure. Rows predating action_digests still land here, so the caller has to be
+        # told rather than left to assume the better number.
+        "keyed_on": ("command" if digest_keyed == total_actions and total_actions
+                     else "mixed" if digest_keyed else "verb"),
+        "actions_keyed_by_digest": digest_keyed,
+        # Digests are salted per gateway process. More than one epoch means identical
+        # commands from different lifetimes look distinct, which UNDER-counts repetition —
+        # a quiet wrongness, so it is surfaced rather than absorbed.
+        "digest_epochs": len(epochs),
+        "digest_epochs_comparable": len(epochs) <= 1,
     }
 
 

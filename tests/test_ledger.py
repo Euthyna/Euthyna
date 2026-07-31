@@ -156,3 +156,52 @@ def test_step_cost_weights_each_row_by_its_own_provider():
     assert anthropic == round(100 + 900 * 0.10 + 100 * 5.0, 1)      # 690.0
     assert deepseek == round(100 + 900 * 0.0083333 + 100 * 2.0, 1)  # 307.5
     assert anthropic > deepseek * 2
+
+
+def _rep_row(actions, digests=None, epoch="e1", session="s"):
+    row = {"session": session, "ts": "1", "actions": actions, "cost": {}}
+    if digests is not None:
+        row["action_digests"] = digests
+        row["digest_epoch"] = epoch
+    return row
+
+
+def test_narrowing_a_search_is_no_longer_charged_as_a_loop():
+    """Three greps with three DIFFERENT commands is how a search narrows. Keyed on the
+    verb they are indistinguishable from a loop, which is what overstated the published
+    SWE-bench figure by 2.5x."""
+    from euthyna.ledger import repetition_waste
+    greps = ["bash:grep"] * 3
+    assert repetition_waste([_rep_row(greps, ["a", "b", "c"])])["repeated_actions"] == 0
+    assert repetition_waste([_rep_row(greps, ["a", "a", "a"])])["repeated_actions"] == 1
+    # Without digests the old, coarser answer is still produced rather than a crash.
+    assert repetition_waste([_rep_row(greps)])["repeated_actions"] == 1
+
+
+def test_the_result_says_which_granularity_it_used():
+    """A caller cannot tell 24% from 59% apart unless the measure reports its own keying."""
+    from euthyna.ledger import repetition_waste
+    greps = ["bash:grep"] * 3
+    assert repetition_waste([_rep_row(greps)])["keyed_on"] == "verb"
+    assert repetition_waste([_rep_row(greps, ["a", "b", "c"])])["keyed_on"] == "command"
+    mixed = repetition_waste([_rep_row(greps), _rep_row(greps, ["a", "b", "c"])])
+    assert mixed["keyed_on"] == "mixed"
+    assert mixed["actions_keyed_by_digest"] == 3
+
+
+def test_digests_from_two_gateway_lifetimes_are_flagged_not_merged():
+    """Salts differ per process, so identical commands across epochs look distinct and
+    UNDER-count repetition. Under-counting silently is the failure being prevented."""
+    from euthyna.ledger import repetition_waste
+    greps = ["bash:grep"] * 3
+    one = repetition_waste([_rep_row(greps, ["a", "a", "a"], epoch="e1")])
+    assert one["digest_epochs"] == 1 and one["digest_epochs_comparable"] is True
+    two = repetition_waste([_rep_row(greps, ["a", "a", "a"], epoch="e1"),
+                            _rep_row(greps, ["a", "a", "a"], epoch="e2")])
+    assert two["digest_epochs"] == 2 and two["digest_epochs_comparable"] is False
+
+
+def test_longest_run_reports_the_verb_not_the_digest():
+    from euthyna.ledger import repetition_waste
+    r = repetition_waste([_rep_row(["bash:grep"] * 4, ["a"] * 4)])
+    assert r["longest_run"] == {"action": "bash:grep", "length": 4}

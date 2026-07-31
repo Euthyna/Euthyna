@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os as _os
 import re
 from collections import OrderedDict
 from typing import Optional
@@ -30,6 +31,50 @@ def _safe_session(session: str) -> str:
     if _SAFE_SESSION.fullmatch(session):
         return session
     return "hdr-" + _sha(session.encode())[:10]
+
+
+# Repetition can only be measured at the granularity the ledger records. `actions` keeps
+# the verb, so three greps that narrow a search and three identical greps going nowhere are
+# the same string — which overstated the published waste figure by 2.5x (59.5% vs 24.0%).
+# The fix is not to log the command; that would end the tap's privacy property. It is to log
+# a digest, which separates identical from different without storing either.
+#
+# The digest is salted per process, so it is comparable within a run and meaningless
+# outside one. That costs nothing real: repetition is a within-session question, and
+# cross-session flow mining keys on the verb, not the command. But it does mean digests
+# from two gateway lifetimes must never be compared — identical commands would look
+# distinct and silently UNDER-count repetition, which is the same shape of quiet wrongness
+# this fix exists to remove. So the epoch id goes in the row, letting analysis detect the
+# boundary and refuse rather than quietly under-report.
+_DIGEST_EPOCH = _os.urandom(8).hex()
+
+
+def _payload_digest(arguments) -> Optional[str]:
+    """Salted digest of a tool call's arguments — identity only, never content."""
+    if arguments is None:
+        return None
+    # The streaming path accumulates arguments as a JSON *string* while the body path hands
+    # over a dict. Both are canonicalised to the same form first, or one session that mixed
+    # them would digest identical calls differently and under-count its own repetition.
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            arguments = arguments.strip()
+    # An empty argument set has no identity to compare, and `{}` serialises to a non-empty
+    # string, so it would otherwise digest to a constant that makes every argument-less
+    # call look like a repeat of every other.
+    if isinstance(arguments, (dict, list, tuple)) and not arguments:
+        return None
+    if not isinstance(arguments, str):
+        try:
+            arguments = json.dumps(arguments, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return None
+    arguments = arguments.strip()
+    if not arguments:
+        return None
+    return _sha((_DIGEST_EPOCH + arguments).encode())[:16]
 
 
 def _sha(data: bytes) -> str:
@@ -304,8 +349,9 @@ def _text_actions(content: Optional[str]) -> list:
     out = []
     for pattern in _TEXT_ACTIONS:
         for match in pattern.finditer(content):
-            verb = _command_verb(match.group(1))
-            out.append(f"bash:{verb}" if verb else "bash")
+            raw = match.group(1)
+            verb = _command_verb(raw)
+            out.append((f"bash:{verb}" if verb else "bash", _payload_digest(raw)))
         if out:
             break        # first format that matches wins; do not double-count a fence
     return out
@@ -324,6 +370,26 @@ def extract_actions(dialect: str, body: Optional[dict],
     Returns None when the response could not be read at all, distinguished from ``[]``
     meaning a response that genuinely called no tools.
     """
+    pairs = _action_pairs(dialect, body, sse_text)
+    return None if pairs is None else [action for action, _ in pairs]
+
+
+def extract_action_digests(dialect: str, body: Optional[dict],
+                           sse_text: Optional[str]) -> Optional[list]:
+    """Per-action digests, positionally aligned with ``extract_actions``.
+
+    Repetition is a question about the same *work* recurring, and the action name cannot
+    answer it: three greps narrowing a search and three identical greps going nowhere are
+    both ``bash:grep``. These carry the identity the name drops, without carrying content.
+    An entry is None when the call had no arguments to identify it by.
+    """
+    pairs = _action_pairs(dialect, body, sse_text)
+    return None if pairs is None else [digest for _, digest in pairs]
+
+
+def _action_pairs(dialect: str, body: Optional[dict],
+                  sse_text: Optional[str]) -> Optional[list]:
+    """(action, digest) per call — one parse, so the two lists cannot drift apart."""
     try:
         if body is not None:
             return (_anthropic_actions_body(body) if dialect == "anthropic"
@@ -343,7 +409,8 @@ def _openai_actions_body(body: dict) -> list:
         for call in message.get("tool_calls") or []:
             fn = call.get("function") or {}
             if fn.get("name"):
-                out.append(_refine_action(fn["name"], fn.get("arguments")))
+                out.append((_refine_action(fn["name"], fn.get("arguments")),
+                            _payload_digest(fn.get("arguments"))))
         if not out:
             # No tool call: the harness may be parsing the command out of the text.
             out.extend(_text_actions(message.get("content")))
@@ -378,7 +445,8 @@ def _openai_actions_stream(sse_text: str) -> list:
     named = [s for s in slots if s["name"]]
     named.sort(key=lambda s: s["index"])   # stable: ties keep creation order
     if named:
-        return [_refine_action(s["name"], s["args"]) for s in named]
+        return [(_refine_action(s["name"], s["args"]), _payload_digest(s["args"]))
+                for s in named]
     # Streamed text-format response: reassemble the content and parse markup from it.
     text = "".join(
         (choice.get("delta") or {}).get("content") or ""
@@ -390,7 +458,8 @@ def _anthropic_actions_body(body: dict) -> list:
     out = []
     for block in body.get("content") or []:
         if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name"):
-            out.append(_refine_action(block["name"], block.get("input")))
+            out.append((_refine_action(block["name"], block.get("input")),
+                        _payload_digest(block.get("input"))))
     if not out:
         for block in body.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "text":
@@ -419,7 +488,8 @@ def _anthropic_actions_stream(sse_text: str) -> list:
             delta = data.get("delta") or {}
             if slot is not None and isinstance(delta.get("partial_json"), str):
                 slot["args"] += delta["partial_json"]
-    return [_refine_action(s["name"], s["args"]) for s in slots]
+    return [(_refine_action(s["name"], s["args"]), _payload_digest(s["args"]))
+            for s in slots]
 
 
 def _sse_datas(sse_text: str):
@@ -493,7 +563,11 @@ class Taps:
                                          self._prev_prompt_tokens.get(session))
         usage, model = extract_usage(dialect, response_json, response_sse)
         model = model or request_json.get("model")
-        actions = extract_actions(dialect, response_json, response_sse)
+        # One parse for both: the digests are positionally aligned with the actions, and
+        # deriving them from a second parse would let the two lists drift.
+        _pairs = _action_pairs(dialect, response_json, response_sse)
+        actions = None if _pairs is None else [a for a, _ in _pairs]
+        action_digests = None if _pairs is None else [d for _, d in _pairs]
 
         cost, cost_error = None, None
         profile = self.config.profile_for(dialect)
@@ -524,6 +598,14 @@ class Taps:
             # signature is built from. None means the response was unreadable; [] means
             # it read fine and called nothing.
             "actions": actions,
+            # Same length and order as `actions`. Identity of the call's arguments, not
+            # their content — this is what separates a narrowing search from a loop, which
+            # the action name alone cannot do. None per entry = no arguments to key on.
+            "action_digests": action_digests,
+            # Digests are salted per gateway process. Rows from different epochs are NOT
+            # comparable, and comparing them would silently under-count repetition rather
+            # than fail, so the epoch is recorded and analysis must check it.
+            "digest_epoch": _DIGEST_EPOCH if action_digests else None,
             "prefix_stable_ratio": ratio,
             # Cache-critical segment change (tools/system/model) since the previous
             # call in this session, with its marginal re-write cost. None = unchanged.

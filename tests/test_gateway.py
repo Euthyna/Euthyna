@@ -665,3 +665,48 @@ def test_shell_tools_are_unaffected_by_the_subcommand_path():
     assert _refine_action("execute_bash", {"command": "grep -rn foo"}) == "execute_bash:grep"
     assert _refine_action("bash", {"command": "sed -i s/a/b/ f"}) == "bash:sed"
     assert _refine_action("finish", {}) == "finish"
+
+
+def test_digests_separate_identical_calls_from_merely_similar_ones():
+    """The action name answers 'what kind of step'; the digest answers 'the same step
+    again?'. Flow signatures need the first, repetition needs the second."""
+    from euthyna.gateway.taps import extract_action_digests, extract_actions
+    def call(cmd):
+        return {"function": {"name": "bash",
+                             "arguments": '{"command": "%s"}' % cmd}}
+    body = {"choices": [{"message": {"tool_calls": [
+        call("grep -rn a src/"), call("grep -rn a src/"), call("grep -rn b src/")]}}]}
+    actions = extract_actions("openai", body, None)
+    digests = extract_action_digests("openai", body, None)
+    assert actions == ["bash:grep"] * 3          # the verb cannot tell them apart
+    assert len(digests) == len(actions)          # positionally aligned
+    assert digests[0] == digests[1] != digests[2]
+
+
+def test_digest_never_carries_the_command_itself():
+    from euthyna.gateway.taps import _payload_digest
+    d = _payload_digest({"command": "curl -H 'Authorization: Bearer sk-secret' example.com"})
+    assert d and len(d) == 16
+    for leak in ("curl", "secret", "sk-", "Authorization", "example.com"):
+        assert leak not in d
+
+
+def test_the_streaming_and_body_paths_digest_a_call_identically():
+    """A session that mixed the two would otherwise under-count its own repetition."""
+    from euthyna.gateway.taps import _payload_digest
+    assert _payload_digest('{"command": "ls -la"}') == _payload_digest({"command": "ls -la"})
+    assert _payload_digest('{"a":1,"b":2}') == _payload_digest({"b": 2, "a": 1})
+
+
+def test_calls_with_no_arguments_have_no_identity():
+    """`{}` serialises non-empty, so digesting it would make every argument-less call
+    look like a repeat of every other."""
+    from euthyna.gateway.taps import _payload_digest
+    for empty in (None, "", "   ", {}, [], "{}", "[]", "  {}  "):
+        assert _payload_digest(empty) is None
+
+
+def test_an_unreadable_response_yields_no_digests_rather_than_empty_ones():
+    from euthyna.gateway.taps import extract_action_digests, extract_actions
+    assert extract_actions("openai", None, None) is None
+    assert extract_action_digests("openai", None, None) is None
