@@ -38,6 +38,15 @@
   render as the last one twice.
 
 ### Added
+- **`weights_from_prices`** — token-equivalent weights derived from each row's own price
+  sheet instead of one provider's constants. A tok-eq normalises everything to "one
+  uncached input token", so each weight is that class's price over the input price.
+  Anthropic Opus reproduces the frozen constants exactly (0.10 / 1.25 / 5.0), which is
+  what validates the derivation; DeepSeek V4-Pro yields 0.0083 for a cache read (twelve
+  times cheaper) and 2.0 for output (not 5.0). `step_cost` now weights each row by the
+  provider it was billed under. A sheet priced at $0 — every local model — has no
+  denominator and falls back, with every weight marked `assumed` rather than silently
+  substituted.
 - **`repetition` line in `euthyna report`** — spend sitting inside runs of the same command
   repeated until it stopped helping, charged from the third occurrence (the first two are
   the ordinary shape of narrowing a search). On a 28-instance SWE-bench corpus this is

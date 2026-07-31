@@ -173,11 +173,47 @@ def step_cost_quality(cost: dict) -> str:
     return "estimated_under_no_cache_assumption"
 
 
-# Effective-cost weights. The first three extend the frozen H1 estimand
-# (w_uncached, w_cached, w_output) = (1.0, 0.1, 5.0) with the cache-write line the
-# original study's route never exposed. Euthyna only APPLIES weights, never chooses
-# them: these are the provider-published multipliers, not a tuned parameter.
-STEP_WEIGHTS = {"uncached": 1.0, "cached": 0.10, "cache_creation": 1.25, "output": 5.0}
+# Fallback weights, used only when a row's price sheet cannot yield ratios. These
+# extend the frozen H1 estimand (w_uncached, w_cached, w_output) = (1.0, 0.1, 5.0) with
+# the cache-write line the original study's route never exposed, and they are
+# **Anthropic Opus's** published ratios — cache read 0.10x input, cache write 1.25x
+# (5-minute TTL; 2x at 1-hour), output 5x ($25 out over $5 in).
+#
+# They are not universal. DeepSeek V4-Pro prices a cache read at $0.003625 against
+# $0.435 input — 0.0083x, twelve times cheaper — and its output at 2.0x, not 5x. Every
+# weight here is provider-specific, so applying this dict to another provider's traffic
+# misprices all four categories at once. Prefer weights_from_prices().
+FALLBACK_STEP_WEIGHTS = {"uncached": 1.0, "cached": 0.10,
+                         "cache_creation": 1.25, "output": 5.0}
+STEP_WEIGHTS = FALLBACK_STEP_WEIGHTS   # back-compat alias
+
+
+def weights_from_prices(prices: dict | None) -> tuple[dict, dict]:
+    """Effective-cost weights derived from the provider's own price sheet.
+
+    A token-equivalent normalises every token class to "one uncached input token", so
+    each weight is just that class's price over the input price. Anthropic Opus returns
+    the frozen constants exactly; another provider returns its own.
+
+    Returns ``(weights, basis)`` where basis maps each key to ``derived`` or
+    ``assumed``, because a sheet that prices input at zero — every local model — cannot
+    yield a ratio at all, and silently substituting one provider's constants there is
+    the assumption that has to stay visible.
+    """
+    weights = dict(FALLBACK_STEP_WEIGHTS)
+    basis = {k: "assumed" for k in weights}
+    prices = prices or {}
+    base = prices.get("input_per_1m")
+    if not base:            # None or 0.0 — no denominator, so no ratio exists
+        return weights, basis
+    for key, price_key in (("cached", "cached_input_per_1m"),
+                           ("cache_creation", "cache_creation_per_1m"),
+                           ("output", "output_per_1m")):
+        rate = prices.get(price_key)
+        if rate is not None:
+            weights[key] = rate / base
+            basis[key] = "derived"
+    return weights, basis
 
 
 def step_cost(cost: dict) -> Optional[float]:
@@ -197,7 +233,9 @@ def step_cost(cost: dict) -> Optional[float]:
     cached = native.get("cached_tokens") or 0
     creation = native.get("cache_creation_tokens") or 0
     uncached = max(prompt - cached - creation, 0)
-    w = STEP_WEIGHTS
+    # Each row carries the price sheet it was billed under, so each row is weighted by
+    # its own provider's ratios rather than by one provider's constants.
+    w, _ = weights_from_prices(cost.get("list_price_per_1m"))
     return round(w["uncached"] * uncached + w["cached"] * cached
                  + w["cache_creation"] * creation + w["output"] * completion, 1)
 

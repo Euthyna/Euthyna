@@ -107,3 +107,52 @@ def test_empty_ledger_reports_no_fractions_rather_than_zero():
     w = repetition_waste([])
     assert w["actions"] == 0
     assert w["repeated_fraction"] is None and w["repeated_cost_fraction"] is None
+
+
+def test_anthropic_price_sheet_reproduces_the_frozen_constants():
+    """The derivation is validated by reproducing the constants it replaces."""
+    from euthyna.ledger import FALLBACK_STEP_WEIGHTS, weights_from_prices
+    w, basis = weights_from_prices({
+        "input_per_1m": 5.0, "cached_input_per_1m": 0.50,
+        "cache_creation_per_1m": 6.25, "output_per_1m": 25.0})
+    assert w == FALLBACK_STEP_WEIGHTS
+    assert basis["cached"] == basis["output"] == "derived"
+
+
+def test_another_providers_sheet_yields_different_weights():
+    """DeepSeek V4-Pro: a cache read is 12x cheaper and output 2.5x cheaper than the
+    Anthropic constants assume — applying those constants would misprice both."""
+    from euthyna.ledger import weights_from_prices
+    w, basis = weights_from_prices({
+        "input_per_1m": 0.435, "cached_input_per_1m": 0.003625, "output_per_1m": 0.87})
+    assert round(w["cached"], 4) == 0.0083
+    assert w["output"] == 2.0
+    # No cache-write price published, so that one weight stays assumed and says so.
+    assert basis["cache_creation"] == "assumed"
+    assert basis["cached"] == "derived"
+
+
+def test_a_zero_input_price_yields_no_ratios_and_admits_it():
+    """Every local model prices at $0, so no denominator exists. Falling back is fine;
+    falling back silently is not."""
+    from euthyna.ledger import FALLBACK_STEP_WEIGHTS, weights_from_prices
+    for sheet in ({"input_per_1m": 0.0, "cached_input_per_1m": 0.0},
+                  {"input_per_1m": None}, {}, None):
+        w, basis = weights_from_prices(sheet)
+        assert w == FALLBACK_STEP_WEIGHTS
+        assert set(basis.values()) == {"assumed"}
+
+
+def test_step_cost_weights_each_row_by_its_own_provider():
+    from euthyna.ledger import step_cost
+    tokens = {"prompt_tokens": 1000, "cached_tokens": 900,
+              "cache_creation_tokens": 0, "completion_tokens": 100}
+    anthropic = step_cost({"native_tokens": tokens, "list_price_per_1m": {
+        "input_per_1m": 5.0, "cached_input_per_1m": 0.50,
+        "cache_creation_per_1m": 6.25, "output_per_1m": 25.0}})
+    deepseek = step_cost({"native_tokens": tokens, "list_price_per_1m": {
+        "input_per_1m": 0.435, "cached_input_per_1m": 0.003625, "output_per_1m": 0.87}})
+    # 100 uncached + 900 cached + 100 output, weighted by each provider's own ratios
+    assert anthropic == round(100 + 900 * 0.10 + 100 * 5.0, 1)      # 690.0
+    assert deepseek == round(100 + 900 * 0.0083333 + 100 * 2.0, 1)  # 307.5
+    assert anthropic > deepseek * 2
