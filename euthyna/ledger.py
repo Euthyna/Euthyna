@@ -297,7 +297,7 @@ def aggregate(rows: list[dict]) -> dict:
             "prefix_mutations": 0, "prefix_mutation_cost_tok_eq": 0.0,
             "mutation_causes": {}, "cache_miss_unexplained": 0,
             "ratios": [], "models": set(), "injected": 0,
-            "step_costs": [], "prompt_series": [],
+            "step_costs": [], "prompt_series": [], "cached_weights": set(),
         })
         s["calls"] += 1
         prompt, completion = _tokens(row)
@@ -318,6 +318,12 @@ def aggregate(rows: list[dict]) -> dict:
             sc = step_cost(cost)
             if sc is not None:
                 s["step_costs"].append(sc)
+            # The compounding term below re-reads earlier context at the CACHED rate, so it
+            # has to use the rate this row was actually billed at. Collected per session
+            # because a session is normally one provider; when it is not, that is visible
+            # rather than averaged away.
+            _w, _b = weights_from_prices(cost.get("list_price_per_1m"))
+            s["cached_weights"].add((_w["cached"], _b["cached"]))
             status = _row_cache_status(cost)
             if status == "unavailable":
                 s["cache_unavailable_calls"] += 1
@@ -345,11 +351,25 @@ def aggregate(rows: list[dict]) -> dict:
         # Eliminating step k also spares every later turn the 0.10x re-read of the
         # tokens it added — the compounding term. Context growth is measured, not
         # assumed: it is the observed prompt delta between consecutive calls.
+        # mean_step_cost_tok_eq is weighted per row by its own provider, so pricing the
+        # compounding term with one provider's frozen constant would build a single number
+        # out of two different price sheets.
+        seen = s.pop("cached_weights")
+        if len(seen) == 1:
+            # One price sheet. Its own basis carries through: a local model prices at $0 and
+            # yields the fallback weight, which is "assumed" and must not read as "derived"
+            # merely because exactly one sheet produced it.
+            cached_w, cached_basis = next(iter(seen))
+        elif len(seen) > 1:
+            cached_w, cached_basis = FALLBACK_STEP_WEIGHTS["cached"], "mixed-providers"
+        else:
+            cached_w, cached_basis = FALLBACK_STEP_WEIGHTS["cached"], "no-priced-calls"
+        s["cached_weight_basis"] = cached_basis
         compounding = 0.0
         n = len(series)
         for k in range(n - 1):
             growth = max(series[k + 1] - series[k], 0)
-            compounding += STEP_WEIGHTS["cached"] * growth * (n - k - 2)
+            compounding += cached_w * growth * (n - k - 2)
         s["mean_step_saving_tok_eq"] = (
             round(s["mean_step_cost_tok_eq"] + compounding / max(n - 1, 1), 1)
             if costs and n > 1 else s["mean_step_cost_tok_eq"])

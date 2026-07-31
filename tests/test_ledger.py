@@ -205,3 +205,42 @@ def test_longest_run_reports_the_verb_not_the_digest():
     from euthyna.ledger import repetition_waste
     r = repetition_waste([_rep_row(["bash:grep"] * 4, ["a"] * 4)])
     assert r["longest_run"] == {"action": "bash:grep", "length": 4}
+
+
+def _priced_row(session, prompt, sheet):
+    return {"session": session, "ts": "1",
+            "usage": {"prompt_tokens": prompt, "completion_tokens": 10},
+            "cost": {"native_tokens": {"prompt_tokens": prompt, "cached_tokens": 0,
+                                       "completion_tokens": 10},
+                     "list_price_per_1m": sheet}}
+
+
+_ANTHROPIC = {"input_per_1m": 5.0, "cached_input_per_1m": 0.50, "output_per_1m": 25.0}
+_DEEPSEEK = {"input_per_1m": 0.435, "cached_input_per_1m": 0.003625, "output_per_1m": 0.87}
+
+
+def test_the_compounding_term_uses_the_rate_the_session_was_billed_at():
+    """mean_step_cost_tok_eq is weighted per row by its own provider. Pricing the
+    compounding re-reads with one provider's frozen 0.10 would build one number out of two
+    different price sheets."""
+    from euthyna.ledger import aggregate
+    def saving(sheet):
+        rows = [_priced_row("s", p, sheet) for p in (100, 300, 600)]
+        return aggregate(rows)["s"]["mean_step_saving_tok_eq"]
+    # DeepSeek re-reads cached context at 0.0083x, not 0.10x, so it compounds far less.
+    assert saving(_ANTHROPIC) > saving(_DEEPSEEK)
+
+
+def test_the_compounding_weight_reports_its_own_basis():
+    """A local model prices at $0 and yields the fallback weight. That is 'assumed', and
+    must not read as 'derived' merely because exactly one sheet produced it."""
+    from euthyna.ledger import aggregate
+    def basis(rows):
+        return aggregate(rows)["s"]["cached_weight_basis"]
+    assert basis([_priced_row("s", p, _ANTHROPIC) for p in (100, 300)]) == "derived"
+    assert basis([_priced_row("s", p, {"input_per_1m": 0.0}) for p in (100, 300)]) == "assumed"
+    assert basis([_priced_row("s", 100, _ANTHROPIC),
+                  _priced_row("s", 300, _DEEPSEEK)]) == "mixed-providers"
+    assert aggregate([{"session": "s", "ts": "1",
+                       "usage": {"prompt_tokens": 10, "completion_tokens": 1}}]
+                     )["s"]["cached_weight_basis"] == "no-priced-calls"
