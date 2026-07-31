@@ -635,9 +635,10 @@ def test_streamed_text_format_is_reassembled_before_parsing():
 
 
 def test_editor_subcommand_is_kept_so_reading_differs_from_editing():
-    """OpenHands routes view/create/str_replace through ONE tool name. Collapsing them
-    would erase the read-vs-edit distinction, which on the previous corpus was the line
-    between the 11 trajectories that did work and the 17 that only explored."""
+    """OpenHands routes view/create/str_replace through ONE tool name, so collapsing them
+    erases the read-vs-edit distinction. Verified against a real OpenHands run rather than
+    the mini-swe-agent corpus, which cannot exhibit this: it ran in text-action mode and
+    contains no str_replace_editor call at all."""
     from euthyna.gateway.taps import _refine_action
     assert _refine_action("str_replace_editor",
                           {"command": "view", "path": "/a/b.py"}) == "str_replace_editor:view"

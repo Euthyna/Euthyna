@@ -243,9 +243,18 @@ _COMMAND_ARG_KEYS = ("command", "cmd", "script", "shell_command")
 
 # Some tools put a fixed operation name in ``command`` rather than a shell line. OpenHands'
 # editor is the important case: view / create / str_replace / insert / undo_edit all arrive
-# as one tool name. Collapsing them erases the difference between reading a file and
-# editing one — and on the previous corpus that was exactly the line between the 11
-# trajectories that did work and the 17 that only explored.
+# as one tool name, and collapsing them erases the difference between reading a file and
+# editing one.
+#
+# An earlier version of this comment justified the change with the 28-instance mini-swe-agent
+# corpus (17 trajectories never edited, 11 did). That was wrong and the claim is withdrawn:
+# that corpus ran in text-action mode, contains zero `str_replace_editor` calls, and already
+# produced 20 distinct action names — so it cannot exhibit this collapse, and the change is
+# provably a no-op over it. The read/edit split there is visible in bash verbs, which the
+# old code already kept.
+# The real evidence arrived later, from an actual OpenHands run: `str_replace_editor:view`
+# and `str_replace_editor:str_replace` are recorded distinctly, and without this branch both
+# would have been the single token `str_replace_editor`.
 _SUBCOMMAND_TOOLS = {"str_replace_editor", "str_replace_based_edit_tool", "edit_file"}
 # The value is an enum rather than user data, but it is still model output, so it is held
 # to a conservative identifier shape and degrades to the bare tool name otherwise. Same
