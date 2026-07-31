@@ -39,6 +39,35 @@ stops producing well-formed actions at all.
 
 ## The waste, measured
 
+> **Correction (2026-07-30). The headline below is overstated by 2.5×.** It counts runs of
+> the same *verb*, not the same *work*. `repetition_waste` reads `actions` from the ledger,
+> and the tap records only `bash:<verb>` — so three greps that progressively narrow a
+> search are indistinguishable from three identical greps stuck in a loop, and both are
+> charged as waste. The function's own docstring names the exception it then fails to make:
+> "the first two are the ordinary shape of narrowing a search."
+>
+> Re-measured on the 28 trajectory files, which retain the full command line, under the
+> *same* rule (charge the 3rd consecutive identical key onward), over 1,000 steps:
+>
+> | keyed on | repeated |
+> |---|---|
+> | action verb — what shipped and what is published below | **59.5%** |
+> | the full command string | **24.0%** |
+> | (command, observation) — OpenHands' stuck-detector definition | **24.0%** |
+>
+> The 59.5% reproduces the 58.8% below, which is what establishes that the keying is the
+> whole explanation rather than a difference in population or rule. **The honest figure for
+> repeated work is ~24%.** Everything below that rests on the 58.8/63.2 pair — including the
+> 61% ceiling — is inflated by the same factor and should be read as an upper bound on an
+> upper bound.
+>
+> Two further notes. Keying on `(command, observation)` gives a figure *identical* to
+> command alone, to the instance: whenever a command repeats consecutively the observation
+> repeats too, so the observation check buys robustness, not discrimination. And the fix is
+> not to log commands — that would end the tap's privacy property. It is to log a
+> **digest** of the command alongside the verb, which separates identical from different
+> without storing either.
+
 Across 44 sessions and 1,551 recorded actions (28 instances, 14 of them run twice):
 
 | | |
