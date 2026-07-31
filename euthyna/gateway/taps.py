@@ -337,6 +337,35 @@ _TEXT_ACTIONS = [
     re.compile(r"```(?:mswea_bash_command|bash|sh|shell)\n(.*?)```", re.S),
 ]
 
+# OpenHands' non-native tool calling. It ships the tool schemas inside the prompt and asks
+# for this markup back, which is the only mode a model that cannot emit native tool calls
+# under agent-shaped prompts can work in — and therefore the mode its traces arrive in.
+#
+#   <function=execute_bash>
+#   <parameter=command>cd /repo && pytest -x</parameter>
+#
+# Two details, both observed rather than assumed. There is NO closing </function>: a
+# pattern requiring one matches nothing and records an empty action list, which reads as
+# "the model called no tools" instead of "the tap cannot read this harness". And the final
+# </parameter> is sometimes absent too, so the last value runs to the end of the block.
+_OH_FUNCTION = re.compile(r"<function=([A-Za-z0-9_.\-]{1,64})>", re.S)
+_OH_PARAM = re.compile(r"<parameter=([A-Za-z0-9_.\-]{1,64})>(.*?)(?:</parameter>|\Z)", re.S)
+
+
+def _openhands_text_actions(content: str) -> list:
+    """(action, digest) per `<function=...>` block, in order."""
+    out = []
+    starts = list(_OH_FUNCTION.finditer(content))
+    for i, m in enumerate(starts):
+        end = starts[i + 1].start() if i + 1 < len(starts) else len(content)
+        block = content[m.end():end]
+        args = {k: v for k, v in _OH_PARAM.findall(block)}
+        # Same minimisation as every other path: _refine_action keeps the verb for a shell
+        # tool and the sub-command for an editor, and never echoes a value it cannot vouch
+        # for. The digest carries identity so repetition is measurable without content.
+        out.append((_refine_action(m.group(1), args), _payload_digest(args)))
+    return out
+
 
 def _text_actions(content: Optional[str]) -> list:
     """Commands a response asked for in markup rather than through a tool call.
@@ -346,7 +375,9 @@ def _text_actions(content: Optional[str]) -> list:
     """
     if not content:
         return []
-    out = []
+    out = _openhands_text_actions(content)
+    if out:
+        return out
     for pattern in _TEXT_ACTIONS:
         for match in pattern.finditer(content):
             raw = match.group(1)

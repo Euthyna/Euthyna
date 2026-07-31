@@ -710,3 +710,50 @@ def test_an_unreadable_response_yields_no_digests_rather_than_empty_ones():
     from euthyna.gateway.taps import extract_action_digests, extract_actions
     assert extract_actions("openai", None, None) is None
     assert extract_action_digests("openai", None, None) is None
+
+
+# Verbatim shapes from an OpenHands 0.53 run against a model that cannot emit native tool
+# calls under agent-shaped prompts. Note there is no closing </function>.
+_OH_VIEW = ("<function=str_replace_editor>\n<parameter=path>/w/a.py</parameter>\n"
+            "<parameter=command>view</parameter>\n<parameter=view_range>[45, 51]</parameter>\n")
+_OH_BASH = "<function=execute_bash>\n<parameter=command>cd /w && pytest -x</parameter>\n"
+
+
+def _content(text):
+    return {"choices": [{"message": {"content": text}}]}
+
+
+def test_openhands_prompt_based_tool_calls_are_recorded():
+    """Without this the tap reads OpenHands runs as 'the model called no tools' — which is
+    indistinguishable, downstream, from a model that genuinely did nothing."""
+    from euthyna.gateway.taps import extract_actions
+    assert extract_actions("openai", _content(_OH_VIEW), None) == ["str_replace_editor:view"]
+    assert extract_actions("openai", _content(_OH_BASH), None) == ["execute_bash:cd"]
+    # order preserved across several blocks in one response
+    assert extract_actions("openai", _content(_OH_VIEW + _OH_BASH), None) == [
+        "str_replace_editor:view", "execute_bash:cd"]
+
+
+def test_a_missing_closing_tag_does_not_silently_swallow_the_action():
+    """The model does not emit </function>, and the final </parameter> is often absent too.
+    A pattern requiring either records nothing while looking like it worked."""
+    from euthyna.gateway.taps import extract_actions
+    unclosed = "<function=execute_bash>\n<parameter=command>ls -la"
+    assert extract_actions("openai", _content(unclosed), None) == ["execute_bash:ls"]
+
+
+def test_openhands_parameter_values_are_never_echoed():
+    from euthyna.gateway.taps import extract_actions
+    leaky = ("<function=str_replace_editor>\n<parameter=command>str_replace</parameter>\n"
+             "<parameter=old_str>AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI</parameter>\n")
+    actions = extract_actions("openai", _content(leaky), None)
+    assert actions == ["str_replace_editor:str_replace"]
+    assert "wJalrX" not in "".join(actions)
+
+
+def test_the_other_harnesses_text_formats_still_parse():
+    from euthyna.gateway.taps import extract_actions
+    assert extract_actions(
+        "openai", _content("<mswea_bash_command>grep -rn x</mswea_bash_command>"), None
+    ) == ["bash:grep"]
+    assert extract_actions("openai", _content("prose with no tool call"), None) == []
