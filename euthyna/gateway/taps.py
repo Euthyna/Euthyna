@@ -196,6 +196,17 @@ _COMMAND_TOOLS = {"bash", "shell", "terminal", "run_command", "execute_bash",
                   "run_shell_command", "execute_command"}
 _COMMAND_ARG_KEYS = ("command", "cmd", "script", "shell_command")
 
+# Some tools put a fixed operation name in ``command`` rather than a shell line. OpenHands'
+# editor is the important case: view / create / str_replace / insert / undo_edit all arrive
+# as one tool name. Collapsing them erases the difference between reading a file and
+# editing one — and on the previous corpus that was exactly the line between the 11
+# trajectories that did work and the 17 that only explored.
+_SUBCOMMAND_TOOLS = {"str_replace_editor", "str_replace_based_edit_tool", "edit_file"}
+# The value is an enum rather than user data, but it is still model output, so it is held
+# to a conservative identifier shape and degrades to the bare tool name otherwise. Same
+# rule as _VERB: allow a known shape, never echo whatever arrived.
+_SUBCOMMAND = re.compile(r"\A[a-z][a-z0-9_]{0,23}\Z")
+
 
 # A plausible command name, and nothing else, may be recorded. This is an ALLOWLIST on
 # purpose: anything not shaped like a bare command name is data, and data does not go in
@@ -248,7 +259,7 @@ def _refine_action(name: str, arguments) -> str:
     user's data. When the name cannot be established safely the bare tool name is
     returned, so the tap degrades to less detail rather than to leaked content.
     """
-    if name not in _COMMAND_TOOLS:
+    if name not in _COMMAND_TOOLS and name not in _SUBCOMMAND_TOOLS:
         return name
     if isinstance(arguments, str):
         try:
@@ -256,6 +267,11 @@ def _refine_action(name: str, arguments) -> str:
         except ValueError:
             return name
     if not isinstance(arguments, dict):
+        return name
+    if name in _SUBCOMMAND_TOOLS:
+        op = arguments.get("command")
+        if isinstance(op, str) and _SUBCOMMAND.match(op):
+            return f"{name}:{op}"
         return name
     for key in _COMMAND_ARG_KEYS:
         raw = arguments.get(key)

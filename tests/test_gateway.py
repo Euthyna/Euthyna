@@ -632,3 +632,36 @@ def test_streamed_text_format_is_reassembled_before_parsing():
         'data: {"choices":[{"delta":{"content":"command>grep -rn x .</mswea_bash_command>"}}]}',
     ])
     assert extract_actions("openai", None, sse) == ["bash:grep"]
+
+
+def test_editor_subcommand_is_kept_so_reading_differs_from_editing():
+    """OpenHands routes view/create/str_replace through ONE tool name. Collapsing them
+    would erase the read-vs-edit distinction, which on the previous corpus was the line
+    between the 11 trajectories that did work and the 17 that only explored."""
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("str_replace_editor",
+                          {"command": "view", "path": "/a/b.py"}) == "str_replace_editor:view"
+    assert _refine_action("str_replace_editor",
+                          {"command": "str_replace"}) == "str_replace_editor:str_replace"
+    # arguments arrive as a JSON string on the streaming path
+    assert _refine_action("str_replace_editor",
+                          '{"command":"create"}') == "str_replace_editor:create"
+
+
+def test_editor_subcommand_never_echoes_anything_but_an_identifier():
+    """The value is an enum, but it is still model output, so it is held to a shape
+    rather than trusted. Degrading to the bare tool name loses detail; echoing loses
+    the privacy property the whole tap is built on."""
+    from euthyna.gateway.taps import _refine_action
+    for bad in ("rm -rf / #inject", "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI",
+                "/etc/passwd", "a" * 40, "", "View", 123, None, ["view"]):
+        assert _refine_action("str_replace_editor", {"command": bad}) == "str_replace_editor"
+    assert _refine_action("str_replace_editor", {}) == "str_replace_editor"
+    assert _refine_action("str_replace_editor", "not json") == "str_replace_editor"
+
+
+def test_shell_tools_are_unaffected_by_the_subcommand_path():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("execute_bash", {"command": "grep -rn foo"}) == "execute_bash:grep"
+    assert _refine_action("bash", {"command": "sed -i s/a/b/ f"}) == "bash:sed"
+    assert _refine_action("finish", {}) == "finish"
