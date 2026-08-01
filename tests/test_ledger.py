@@ -58,7 +58,12 @@ def test_empty_vocabulary_must_not_be_read_as_all_triggers_reachable():
     assert vocab == set()
     # dead_triggers on an empty vocabulary would call everything dead, which is why the
     # CLI reports UNKNOWN instead of calling it.
-    assert len(reg.dead_triggers(vocab)) == len(reg.skills)
+    # Scoped to signature-triggered skills: a task-start skill fires once per task and
+    # does not key on the action vocabulary at all, so an empty vocabulary says nothing
+    # about it. Counting it as dead would report an always-on skill as unreachable.
+    keyed = [s for s in reg.skills if s.trigger == "signature"]
+    assert keyed, "the signature-keyed skills are the subject of this test"
+    assert {d["name"] for d in reg.dead_triggers(vocab)} >= {s.name for s in keyed}
 
 
 def _arow(session, actions, prompt=1000, completion=10, ts="2026-01-01T00:00:00"):

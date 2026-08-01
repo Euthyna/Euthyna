@@ -50,7 +50,10 @@ def estimate_tokens(text: str) -> int:
 class Skill:
     name: str
     signature: list                      # the flow signature this compiles, in order
-    steps_replaced: int
+    # None means NOT YET MEASURED, and is the honest state for a freshly mined skill.
+    # Requiring an int here is what forces an author to invent one -- which is exactly
+    # how swe-patch-probe came to declare 6 and replace 0.
+    steps_replaced: Optional[int]
     body: str
     description: str = ""
     preconditions: list = field(default_factory=list)
@@ -61,6 +64,11 @@ class Skill:
     # is not what `steps_replaced` says. That number is inherited from the corpus the
     # skill was mined from and travels with the file; this one has to be earned per
     # workload. Same precedence rule as measured_body_tokens: measured always wins.
+    # 'signature' (default) fires on a matching action n-gram; 'task-start' fires once
+    # per task. The second kind has no signature by construction, so the gates that ask
+    # 'what does this key on?' do not apply to it -- and answering them with an empty
+    # signature made it look like dead code when it is the opposite: it always fires.
+    trigger: str = "signature"
     measured_steps_replaced: Optional[int] = None
     measured_in: str = ""                # workload the measurement above was taken in
     path: Optional[Path] = None
@@ -91,7 +99,9 @@ class Skill:
         """
         if self.measured_steps_replaced is not None:
             return self.measured_steps_replaced
-        return self.steps_replaced
+        # Unmeasured and undeclared: claims nothing. The gate below reads 0 and refuses to
+        # return PAYS, which is the correct answer to "does this pay?" before anyone looked.
+        return self.steps_replaced if self.steps_replaced is not None else 0
 
     @property
     def steps_are_measured(self) -> bool:
@@ -111,9 +121,19 @@ class Skill:
         n = self.effective_steps_replaced
         if n < GATES["min_steps_replaced"]:
             where = f" in {self.measured_in}" if self.measured_in else ""
-            basis = "measured" if self.steps_are_measured else "declared"
-            out.append(f"{basis} to replace {n} steps{where} — nothing to amortize")
-        if not self.signature:
+            if self.steps_are_measured:
+                out.append(f"measured to replace {n} steps{where} — nothing to amortize")
+            elif self.steps_replaced is None:
+                # Distinct from declaring zero. "Nobody has measured this yet" is the state
+                # every mined skill starts in, and the failure this project keeps hitting is
+                # a number invented to escape it. Not deployable, but not disproven either.
+                out.append("steps replaced not yet measured — deploy only behind an A/B")
+            else:
+                out.append(f"declared to replace {n} steps{where} — nothing to amortize")
+        # A task-start skill has no signature by construction: it fires once per task. Asking
+        # it what it keys on is a category error, and answering "nothing" made an always-on
+        # skill read as dead code.
+        if self.trigger == "signature" and not self.signature:
             out.append("no trigger signature — nothing to key on")
         return out
 
@@ -134,7 +154,9 @@ def load_skill(path) -> Skill:
     return Skill(
         name=meta["name"],
         signature=list(meta["signature"]),
-        steps_replaced=int(meta["steps_replaced"]),
+        steps_replaced=(None if meta["steps_replaced"] is None
+                        else int(meta["steps_replaced"])),
+        trigger=meta.get("trigger", "signature"),
         body=m.group(2).strip(),
         description=meta.get("description", ""),
         preconditions=list(meta.get("preconditions") or []),
