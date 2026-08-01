@@ -3,7 +3,10 @@
 `SWE-Lego-Qwen3-8B-MLX-4bit` on OpenHands 0.53.0 CodeActAgent, every call through the
 gateway, arm64 containers, `max_iterations=100`.
 
-**Graded result: 6 of 28 resolved (21.4%), 95% lower bound 9.8%.**
+**Graded result: 6 of 28 resolved (21.4%), 95% lower bound 9.8% — and 7 of 28 (25.0%)
+once one patch is stripped of the build artefacts that stopped it applying.** Both
+numbers are stated because they answer different questions: what the agent delivered,
+and what it had actually solved.
 
 The same 28 instances under mini-SWE-agent produced 1 non-empty patch and were never
 graded, so that arm's resolve rate is unknown with an upper bound of 3.6%. This run is the
@@ -52,6 +55,48 @@ and 66 failing.
 `swebench_official_image`, so it resolved `docker.io/xingyaoww/...` while inference used
 `docker.io/swebench/...` — different registry, different id format. Work that ran fine
 would have failed to grade.
+
+## One failure was delivery, not reasoning — and fixing it is worth +1
+
+`psf__requests-1142` fixed the correct file: `prepare_content_length` in
+`requests/models.py`, the same function the gold patch changes. It graded False because
+the patch also carried 65 new files under `build/lib/requests/` — a build directory the
+agent produced by running setup, and which already exists in the evaluation container.
+`patch` reverse-applied the conflicting hunks, returned APPLY_PATCH_FAIL, and the test log
+came back **0 bytes**. The tests never ran.
+
+`tools/patch_hygiene.py` removes two categories and nothing else: generated directories
+(`build/`, `dist/`, `*.egg-info/`, `.tox/`, `__pycache__/`) and NEW top-level files named
+like scratch scripts (`reproduce_*.py`, `test_*.py`, `debug_*.py`). A modification to a file
+that already existed is never touched — if the agent broke something, that stays its fault.
+
+Graded on the recovery candidate plus all six previously-resolved instances as a no-harm
+check:
+
+| | |
+|---|---|
+| recovered | **1** — `psf__requests-1142`, False → True |
+| harmed | **0** — all six stayed resolved |
+| failed_apply_patch | 1/7 → 0/7 |
+
+| | resolve rate | 95% lower bound |
+|---|---|---|
+| before | 6/28 = 21.4% | 9.8% |
+| **after** | **7/28 = 25.0%** | **12.4%** |
+
+This is not the model getting better. It already solved that instance; the delivery was
+dirty. The honest statement is that 1 of 28 failures (3.6%) was patch hygiene rather than
+reasoning, and this corpus contains exactly one such case — so the +1 is the whole of the
+available space here, not a rate to extrapolate.
+
+Two instances drop to an empty patch under the same filter (`pylint-4551`,
+`pytest-7521`): everything they produced was their own scratch scripts. That is not damage,
+it is a more accurate classification — from "patch did not fix it" to "produced nothing".
+
+Unlike a skill, this requires no compliance from the agent, adds no tokens, and is
+deterministic. The contemporaneous skill A/B, for comparison, moved the agent toward the
+right command in 5 of 11 instances, got it to actually run the suite in 1, cost a median
++39,790 tok-eq, and improved no outcome.
 
 ## What the corpus does not support
 
