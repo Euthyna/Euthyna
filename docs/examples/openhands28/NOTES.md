@@ -98,6 +98,31 @@ deterministic. The contemporaneous skill A/B, for comparison, moved the agent to
 right command in 5 of 11 instances, got it to actually run the suite in 1, cost a median
 +39,790 tok-eq, and improved no outcome.
 
+## The step budget is 40% larger than any success needed
+
+The six resolved instances took 23, 25, 26, 32, 51 and 53 actions. The failures ran to a
+median of 71 and a maximum of 87. The budget was 100.
+
+`max_iterations` never reaches the model: it appears nowhere in the prompt (six probes, all
+absent), nothing warns the agent as it runs low, and hitting it simply raises. So at
+temperature 0 with a fixed harness, a run that finished in 23 actions is **byte-identical**
+under a 60-action cap. Truncating is not an estimate of what would have happened; it is
+provably lossless for every run that finished below the new cap.
+
+| cap | resolved kept | tok-eq saved | of corpus |
+|---|---|---|---|
+| 40 | 4/6 | 8,296,440 | 35.2% |
+| 50 | 4/6 | 6,080,423 | 25.8% |
+| **60** | **6/6** | **3,927,634** | **16.7%** |
+| 70 | 6/6 | 2,276,700 | 9.7% |
+
+**60 keeps every success and removes 16.7% of the corpus's spend.**
+
+A finer stopping rule was tried and does not work here. "Stop after N actions with no edit"
+assumes failures stop producing and then spin; they do not. Final edits land at 79/83,
+85/85, 80/87, 81/87 — the agent edits until the end, ineffectively. There is no idle tail
+to reclaim, and the blunt cap beats the clever rule by a wide margin.
+
 ## What the corpus does not support
 
 An earlier document concluded this corpus "cannot support re-distillation". That conclusion
