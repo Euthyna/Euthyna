@@ -1,0 +1,15 @@
+{"task": "double", "arm": "control", "rep": 0, "resolved": true, "agent_error": null, "wall_s": 57.7, "started_at": 1785349973.047775}
+{"task": "double", "arm": "control", "rep": 1, "resolved": true, "agent_error": null, "wall_s": 54.3, "started_at": 1785350030.961136}
+{"task": "double", "arm": "control", "rep": 2, "resolved": true, "agent_error": null, "wall_s": 61.3, "started_at": 1785350085.447283}
+{"task": "greet", "arm": "control", "rep": 0, "resolved": true, "agent_error": null, "wall_s": 75.2, "started_at": 1785350146.934263}
+{"task": "greet", "arm": "control", "rep": 1, "resolved": false, "agent_error": null, "wall_s": 70.4, "started_at": 1785350222.33685}
+{"task": "greet", "arm": "control", "rep": 2, "resolved": true, "agent_error": null, "wall_s": 70.2, "started_at": 1785350292.878859}
+{"task": "evens", "arm": "control", "rep": 0, "resolved": false, "agent_error": null, "wall_s": 40.2, "started_at": 1785350363.241206}
+{"task": "evens", "arm": "control", "rep": 1, "resolved": true, "agent_error": null, "wall_s": 60.0, "started_at": 1785350403.720193}
+{"task": "evens", "arm": "control", "rep": 2, "resolved": true, "agent_error": null, "wall_s": 56.9, "started_at": 1785350463.921175}
+{"task": "maxof", "arm": "control", "rep": 0, "resolved": false, "agent_error": null, "wall_s": 105.8, "started_at": 1785350521.0452192}
+{"task": "maxof", "arm": "control", "rep": 1, "resolved": true, "agent_error": null, "wall_s": 70.0, "started_at": 1785350627.006151}
+{"task": "maxof", "arm": "control", "rep": 2, "resolved": false, "agent_error": null, "wall_s": 41.7, "started_at": 1785350697.223657}
+{"task": "dedupe", "arm": "control", "rep": 0, "resolved": true, "agent_error": null, "wall_s": 64.1, "started_at": 1785350739.150529}
+{"task": "dedupe", "arm": "control", "rep": 1, "resolved": true, "agent_error": null, "wall_s": 64.2, "started_at": 1785350803.446732}
+{"task": "dedupe", "arm": "control", "rep": 2, "resolved": true, "agent_error": null, "wall_s": 62.9, "started_at": 1785350867.86564}

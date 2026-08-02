@@ -32,33 +32,85 @@ GATES = {
     "min_steps_replaced": 1,
 }
 
-_TOKENS_PER_CHAR = 0.25  # 4 chars/token, the same convention as euthyna.core.transforms
+# 4 chars/token is the convention euthyna.core.transforms uses, but measuring a real
+# skill document through the gateway put it 31% low (204 observed vs 156 estimated,
+# consistent across three sessions — see docs/examples/skill-pilot). Estimating a
+# skill's cost too low is the direction that admits skills that cannot pay, so the
+# estimator carries the measured correction and a skill may override it outright.
+_TOKENS_PER_CHAR = 0.25
+_MEASURED_CORRECTION = 1.31
 _FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.S)
 
 
 def estimate_tokens(text: str) -> int:
-    return int(len(text) * _TOKENS_PER_CHAR)
+    return int(len(text) * _TOKENS_PER_CHAR * _MEASURED_CORRECTION)
 
 
 @dataclass
 class Skill:
     name: str
     signature: list                      # the flow signature this compiles, in order
-    steps_replaced: int
+    # None means NOT YET MEASURED, and is the honest state for a freshly mined skill.
+    # Requiring an int here is what forces an author to invent one -- which is exactly
+    # how swe-patch-probe came to declare 6 and replace 0.
+    steps_replaced: Optional[int]
     body: str
     description: str = ""
     preconditions: list = field(default_factory=list)
     source: str = ""                     # corpus/evidence the distillation came from
+    harness: str = ""                    # harness whose action vocabulary the signature speaks
+    measured_body_tokens: Optional[int] = None   # observed on the wire, beats any estimate
+    # Steps this skill was observed to replace in the workload it is DEPLOYED into, which
+    # is not what `steps_replaced` says. That number is inherited from the corpus the
+    # skill was mined from and travels with the file; this one has to be earned per
+    # workload. Same precedence rule as measured_body_tokens: measured always wins.
+    # 'signature' (default) fires on a matching action n-gram; 'task-start' fires once
+    # per task. The second kind has no signature by construction, so the gates that ask
+    # 'what does this key on?' do not apply to it -- and answering them with an empty
+    # signature made it look like dead code when it is the opposite: it always fires.
+    trigger: str = "signature"
+    measured_steps_replaced: Optional[int] = None
+    measured_in: str = ""                # workload the measurement above was taken in
     path: Optional[Path] = None
 
     @property
+    def vocabulary(self) -> set:
+        """The action names this skill's trigger is expressed in."""
+        return {str(a) for a in self.signature}
+
+    @property
     def body_tokens(self) -> int:
-        return estimate_tokens(self.body)
+        """Measured footprint when someone has run this skill through a gateway and
+        recorded it; otherwise the corrected estimate. Measured always wins."""
+        return self.measured_body_tokens or estimate_tokens(self.body)
+
+    @property
+    def tokens_are_measured(self) -> bool:
+        return self.measured_body_tokens is not None
+
+    @property
+    def effective_steps_replaced(self) -> int:
+        """What this skill actually saves here, not what its corpus said it saved there.
+
+        A skill mined from one harness carries its step count with it, and the economics
+        gate will happily return PAYS on a number that was never true of the workload in
+        front of it. `swe-patch-probe` declares 6 and replaced 0 in the cost-primary run —
+        the flow it keys on never occurred (RFC-002 §10.6).
+        """
+        if self.measured_steps_replaced is not None:
+            return self.measured_steps_replaced
+        # Unmeasured and undeclared: claims nothing. The gate below reads 0 and refuses to
+        # return PAYS, which is the correct answer to "does this pay?" before anyone looked.
+        return self.steps_replaced if self.steps_replaced is not None else 0
+
+    @property
+    def steps_are_measured(self) -> bool:
+        return self.measured_steps_replaced is not None
 
     def economics(self, step_cost_tok_eq: Optional[float],
                   remaining_turns: int = 40) -> Economics:
-        return Economics(self.body_tokens, self.steps_replaced, step_cost_tok_eq,
-                         remaining_turns)
+        return Economics(self.body_tokens, self.effective_steps_replaced,
+                         step_cost_tok_eq, remaining_turns)
 
     def gate_failures(self) -> list:
         """Every gate this skill violates, with the measured basis for each."""
@@ -66,9 +118,22 @@ class Skill:
         if self.body_tokens > GATES["max_body_tokens"]:
             out.append(f"body {self.body_tokens} tok > {GATES['max_body_tokens']} "
                        "(break-even rises past anything observed)")
-        if self.steps_replaced < GATES["min_steps_replaced"]:
-            out.append(f"replaces {self.steps_replaced} steps — nothing to amortize")
-        if not self.signature:
+        n = self.effective_steps_replaced
+        if n < GATES["min_steps_replaced"]:
+            where = f" in {self.measured_in}" if self.measured_in else ""
+            if self.steps_are_measured:
+                out.append(f"measured to replace {n} steps{where} — nothing to amortize")
+            elif self.steps_replaced is None:
+                # Distinct from declaring zero. "Nobody has measured this yet" is the state
+                # every mined skill starts in, and the failure this project keeps hitting is
+                # a number invented to escape it. Not deployable, but not disproven either.
+                out.append("steps replaced not yet measured — deploy only behind an A/B")
+            else:
+                out.append(f"declared to replace {n} steps{where} — nothing to amortize")
+        # A task-start skill has no signature by construction: it fires once per task. Asking
+        # it what it keys on is a category error, and answering "nothing" made an always-on
+        # skill read as dead code.
+        if self.trigger == "signature" and not self.signature:
             out.append("no trigger signature — nothing to key on")
         return out
 
@@ -89,11 +154,17 @@ def load_skill(path) -> Skill:
     return Skill(
         name=meta["name"],
         signature=list(meta["signature"]),
-        steps_replaced=int(meta["steps_replaced"]),
+        steps_replaced=(None if meta["steps_replaced"] is None
+                        else int(meta["steps_replaced"])),
+        trigger=meta.get("trigger", "signature"),
         body=m.group(2).strip(),
         description=meta.get("description", ""),
         preconditions=list(meta.get("preconditions") or []),
         source=meta.get("source", ""),
+        harness=meta.get("harness", ""),
+        measured_body_tokens=meta.get("measured_body_tokens"),
+        measured_steps_replaced=meta.get("measured_steps_replaced"),
+        measured_in=meta.get("measured_in", ""),
         path=path,
     )
 
@@ -130,6 +201,36 @@ class SkillRegistry:
         # Cap what is ever presented, independent of library size.
         return sorted(hits, key=lambda s: -s.steps_replaced)[:GATES["max_presented_per_task"]]
 
+    def dead_triggers(self, observed_vocabulary) -> list:
+        """Skills whose trigger cannot fire in a harness that emits these actions.
+
+        A signature is a sequence of action names, so it can only match a harness that
+        emits those names. Mine a flow from one harness and deploy it into another and the
+        trigger is dead code: it never matches, at any prefix of any trajectory, and
+        nothing in ``match()`` says so — never-matching is exactly what matching looks
+        like when there is nothing to match.
+
+        This is not hypothetical. The three skills in this repository were distilled from
+        mini-SWE-agent, which has one tool, so they speak ``bash:grep`` / ``bash:sed`` /
+        ``bash:echo``. Run against opencode, which emits ``glob`` / ``read`` / ``edit`` /
+        ``bash``, the vocabulary intersection is empty and all three are inert. The
+        cost-primary experiment delivered one of them unconditionally as a document and
+        measured it costing 6% more for nothing — but in a real deployment the registry
+        would never have presented it at all.
+        """
+        vocab = {str(a) for a in observed_vocabulary}
+        out = []
+        for s in self.skills:
+            if s.vocabulary and not (s.vocabulary & vocab):
+                out.append({
+                    "name": s.name,
+                    "harness": s.harness or "unrecorded",
+                    "signature_vocabulary": sorted(s.vocabulary),
+                    "reason": ("trigger vocabulary is disjoint from the observed actions "
+                               "— this skill can never fire here"),
+                })
+        return out
+
     def gate_failures(self) -> list:
         out = [f"{s.name}: {f}" for s in self.skills for f in s.gate_failures()]
         if len(self.skills) > GATES["max_active_skills"]:
@@ -143,8 +244,13 @@ class SkillRegistry:
         for s in self.skills:
             e = s.economics(step_cost_tok_eq, remaining_turns)
             rows.append({"name": s.name, "signature": s.signature,
-                         "source": s.source, **e.as_dict(),
-                         "gate_failures": s.gate_failures()})
+                         "source": s.source, "harness": s.harness,
+                         "tokens_measured": s.tokens_are_measured,
+                         "steps_declared": s.steps_replaced,
+                         "steps_measured": s.measured_steps_replaced,
+                         "steps_basis": "measured" if s.steps_are_measured else "declared",
+                         "measured_in": s.measured_in,
+                         **e.as_dict(), "gate_failures": s.gate_failures()})
         return rows
 
     def to_json(self, step_cost_tok_eq: Optional[float]) -> str:

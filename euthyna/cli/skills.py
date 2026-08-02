@@ -8,7 +8,8 @@ from __future__ import annotations
 import datetime as _dt
 import json
 
-from euthyna.ledger import aggregate, load_rows
+from euthyna.ledger import (action_coverage, aggregate, load_rows,
+                            observed_vocabulary)
 from euthyna.skills import GATES, SkillRegistry
 
 
@@ -51,7 +52,12 @@ def run(args) -> int:
     print("-" * len(header))
     for r in rows:
         needs = f"{r['break_even_steps']:.1f}" if r["break_even_steps"] is not None else "—"
-        print(f"{r['name'][:22]:<22} {r['steps_replaced']:>7} {r['body_tokens']:>6} "
+        # The verdict is computed from the effective count, so the column must show
+        # that one; a table displaying the declared number beside a verdict derived
+        # from a measured one is how a skill looks like it still pays.
+        ritual = (f"{r['steps_measured']}*" if r["steps_basis"] == "measured"
+                  else str(r["steps_declared"]))
+        print(f"{r['name'][:22]:<22} {ritual:>7} {r['body_tokens']:>6} "
               f"{r['hold_cost_tok_eq']:>8,.0f} {r['net_steps_saved']:>6} {needs:>6}  "
               f"{r['verdict']}")
     print("-" * len(header))
@@ -60,6 +66,32 @@ def run(args) -> int:
     print("hold = 1.25×body + 0.10×body×turns (written once, re-read every later turn)")
     print("needs = steps it must save WHEN IT HELPS to break even, at published paired "
           "rates (help 13.5% / harm 8.4%)")
+    if any(r["steps_basis"] == "measured" for r in rows):
+        print("* ritual was MEASURED in the workload named by measured_in; the rest are "
+              "declared by the corpus the skill was mined from and unverified here")
+
+    # A signature can only match a harness that emits those action names. Mine a flow
+    # from one harness, deploy it into another, and the trigger is dead code that looks
+    # alive — match() cannot say so, because never-matching and not-yet-matching are the
+    # same observation.
+    vocab = observed_vocabulary(load_rows(args.date or _dt.date.today().isoformat()))
+    if vocab:
+        dead = registry.dead_triggers(vocab)
+        print(f"\nobserved action vocabulary ({len(vocab)}): {', '.join(sorted(vocab))}")
+        if dead:
+            print(f"DEAD TRIGGERS ({len(dead)} of {len(registry.skills)}) — these can "
+                  "never fire on this traffic, whatever their economics say:")
+            for d in dead:
+                print(f"  ✗ {d['name']} speaks {d['signature_vocabulary']} "
+                      f"(mined from {d['harness']})")
+        else:
+            print(f"all {len(registry.skills)} triggers are expressible in it")
+    else:
+        cov = action_coverage(load_rows(args.date or _dt.date.today().isoformat()))
+        if cov["calls"]:
+            print(f"\nno action vocabulary observed ({cov['pre_tap']} of {cov['calls']} "
+                  "calls predate the actions tap) — trigger reachability is UNKNOWN, "
+                  "not confirmed")
 
     failures = registry.gate_failures()
     if failures:

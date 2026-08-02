@@ -1,0 +1,9 @@
+{"task": "double", "arm": "bare", "rep": 0, "resolved": false, "agent_error": null, "external_reject": false, "wall_s": 41.7}
+{"task": "double", "arm": "bare", "rep": 1, "resolved": false, "agent_error": null, "external_reject": false, "wall_s": 41.5}
+{"task": "double", "arm": "bare", "rep": 2, "resolved": true, "agent_error": null, "external_reject": false, "wall_s": 64.9}
+{"task": "double", "arm": "anchored", "rep": 0, "resolved": true, "agent_error": null, "external_reject": false, "wall_s": 66.1}
+{"task": "double", "arm": "anchored", "rep": 1, "resolved": false, "agent_error": null, "external_reject": false, "wall_s": 42.0}
+{"task": "double", "arm": "anchored", "rep": 2, "resolved": true, "agent_error": null, "external_reject": false, "wall_s": 62.6}
+{"task": "double", "arm": "fixed", "rep": 0, "resolved": true, "agent_error": null, "external_reject": false, "wall_s": 56.2}
+{"task": "double", "arm": "fixed", "rep": 1, "resolved": true, "agent_error": null, "external_reject": false, "wall_s": 61.5}
+{"task": "double", "arm": "fixed", "rep": 2, "resolved": true, "agent_error": null, "external_reject": false, "wall_s": 60.4}

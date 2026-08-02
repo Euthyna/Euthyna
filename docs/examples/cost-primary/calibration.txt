@@ -1,0 +1,14 @@
+cost-experiment calibration — baseline arm: control
+
+task                     solved   rate  95% lo  yield  sched  verdict
+---------------------------------------------------------------------
+maxof                    1/3      0.33    0.02   0.11    117  EXCLUDE_LOW_YIELD
+greet                    2/3      0.67    0.14   0.44     30  EXCLUDE_LOW_YIELD
+evens                    2/3      0.67    0.14   0.44     30  EXCLUDE_LOW_YIELD
+double                   3/3      1.00    0.37   1.00     13  ELIGIBLE
+dedupe                   3/3      1.00    0.37   1.00     13  ELIGIBLE
+---------------------------------------------------------------------
+a task the baseline never solves has nothing to hold constant, so there is no cost question to ask of it
+95% lo is the exact one-sided Clopper-Pearson bound: 3/3 clean runs only rule out a solve rate below 0.37
+
+to get 13 usable pairs: 2 tasks x 7 pairs, 14 pairs scheduled after yield loss = 28 runs

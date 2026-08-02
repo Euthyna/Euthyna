@@ -6,6 +6,7 @@ steps_replaced: 3
 preconditions:
   - a symbol or identifier is named in the issue text
   - no file has been read yet this session
+harness: mini-swe-agent   # the vocabulary the signature above speaks
 source: mined from 20 mini-SWE-agent sessions; opens 5 of them
 ---
 

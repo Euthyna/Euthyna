@@ -91,7 +91,20 @@ def build_parser() -> argparse.ArgumentParser:
     ea.add_argument("--dates", nargs="*", default=None,
                     help="ledger days to read costs from (default: today)")
     ea.add_argument("--no-cost", action="store_true", help="skip the ledger cost join")
+    ea.add_argument("--window-costs", action="store_true",
+                    help="attribute cost by each run's [started_at, ended_at] window "
+                         "instead of by session id — correct when one run opens more "
+                         "than one upstream session, and requires serial runs")
     ea.add_argument("--json", action="store_true")
+    ec = exp_sub.add_parser("calibrate", help="which tasks a cost experiment can run on, "
+                                              "and how many pairs each needs scheduled")
+    ec.add_argument("outcomes", help="calibration outcomes JSONL: task, arm, rep, resolved")
+    ec.add_argument("--baseline", default="control")
+    ec.add_argument("--candidate", default=None,
+                    help="if the intervention has also been run, use its rate for the yield")
+    ec.add_argument("--target-pairs", type=int, default=13,
+                    help="usable pairs wanted (default 13 = 80%% power on paired cost)")
+    ec.add_argument("--json", action="store_true")
     return parser
 
 

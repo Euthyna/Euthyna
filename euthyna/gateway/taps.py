@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os as _os
 import re
 from collections import OrderedDict
 from typing import Optional
@@ -30,6 +31,50 @@ def _safe_session(session: str) -> str:
     if _SAFE_SESSION.fullmatch(session):
         return session
     return "hdr-" + _sha(session.encode())[:10]
+
+
+# Repetition can only be measured at the granularity the ledger records. `actions` keeps
+# the verb, so three greps that narrow a search and three identical greps going nowhere are
+# the same string — which overstated the published waste figure by 2.5x (59.5% vs 24.0%).
+# The fix is not to log the command; that would end the tap's privacy property. It is to log
+# a digest, which separates identical from different without storing either.
+#
+# The digest is salted per process, so it is comparable within a run and meaningless
+# outside one. That costs nothing real: repetition is a within-session question, and
+# cross-session flow mining keys on the verb, not the command. But it does mean digests
+# from two gateway lifetimes must never be compared — identical commands would look
+# distinct and silently UNDER-count repetition, which is the same shape of quiet wrongness
+# this fix exists to remove. So the epoch id goes in the row, letting analysis detect the
+# boundary and refuse rather than quietly under-report.
+_DIGEST_EPOCH = _os.urandom(8).hex()
+
+
+def _payload_digest(arguments) -> Optional[str]:
+    """Salted digest of a tool call's arguments — identity only, never content."""
+    if arguments is None:
+        return None
+    # The streaming path accumulates arguments as a JSON *string* while the body path hands
+    # over a dict. Both are canonicalised to the same form first, or one session that mixed
+    # them would digest identical calls differently and under-count its own repetition.
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            arguments = arguments.strip()
+    # An empty argument set has no identity to compare, and `{}` serialises to a non-empty
+    # string, so it would otherwise digest to a constant that makes every argument-less
+    # call look like a repeat of every other.
+    if isinstance(arguments, (dict, list, tuple)) and not arguments:
+        return None
+    if not isinstance(arguments, str):
+        try:
+            arguments = json.dumps(arguments, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return None
+    arguments = arguments.strip()
+    if not arguments:
+        return None
+    return _sha((_DIGEST_EPOCH + arguments).encode())[:16]
 
 
 def _sha(data: bytes) -> str:
@@ -189,6 +234,334 @@ def _anthropic_stream(sse_text: str) -> tuple[Optional[dict], Optional[str]]:
     return (usage or None), model
 
 
+# Tools whose first argument is a command line, so the tool name alone says nothing
+# about what the step did. mini-SWE-agent has exactly one tool, and every action in a
+# trace mined from it would otherwise be the same symbol.
+_COMMAND_TOOLS = {"bash", "shell", "terminal", "run_command", "execute_bash",
+                  "run_shell_command", "execute_command"}
+_COMMAND_ARG_KEYS = ("command", "cmd", "script", "shell_command")
+
+# Some tools put a fixed operation name in ``command`` rather than a shell line. OpenHands'
+# editor is the important case: view / create / str_replace / insert / undo_edit all arrive
+# as one tool name, and collapsing them erases the difference between reading a file and
+# editing one.
+#
+# An earlier version of this comment justified the change with the 28-instance mini-swe-agent
+# corpus (17 trajectories never edited, 11 did). That was wrong and the claim is withdrawn:
+# that corpus ran in text-action mode, contains zero `str_replace_editor` calls, and already
+# produced 20 distinct action names — so it cannot exhibit this collapse, and the change is
+# provably a no-op over it. The read/edit split there is visible in bash verbs, which the
+# old code already kept.
+# The real evidence arrived later, from an actual OpenHands run: `str_replace_editor:view`
+# and `str_replace_editor:str_replace` are recorded distinctly, and without this branch both
+# would have been the single token `str_replace_editor`.
+_SUBCOMMAND_TOOLS = {"str_replace_editor", "str_replace_based_edit_tool", "edit_file"}
+# The value is an enum rather than user data, but it is still model output, so it is held
+# to a conservative identifier shape and degrades to the bare tool name otherwise. Same
+# rule as _VERB: allow a known shape, never echo whatever arrived.
+_SUBCOMMAND = re.compile(r"\A[a-z][a-z0-9_]{0,23}\Z")
+
+
+# A plausible command name, and nothing else, may be recorded. This is an ALLOWLIST on
+# purpose: anything not shaped like a bare command name is data, and data does not go in
+# the ledger.
+#
+# Two constraints beyond the character set, both there to keep a credential out:
+#
+#   <= 16 chars — every command an agent actually runs is far shorter (grep, sed, python3,
+#   pytest, git); `docker-compose` at 14 is about the longest real one. Most secrets are
+#   longer. A genuinely longer command name records as bare `bash`: less detail, never a
+#   leak.
+#
+#   at least one lowercase letter — Unix command names are lowercase by overwhelming
+#   convention, while env-var names, constants and access keys are upper. This is what
+#   rejects a line consisting of nothing but `AKIAIOSFODNN7EXAMPLE`, which the character
+#   set alone accepts because it is indistinguishable from a command name by shape.
+#
+# Residual risk, stated rather than papered over: a short all-lowercase high-entropy token
+# still passes. The surface is small and the alternative — a maintained list of command
+# names — breaks on every real toolchain.
+_VERB = re.compile(r"\A(?=[A-Za-z0-9_.+-]{1,16}\Z)(?=.*[a-z])[A-Za-z0-9][A-Za-z0-9_.+-]*\Z")
+# Leading VAR=VALUE assignments are shell prefix syntax, not the verb — and they are
+# exactly where secrets appear. mini-swe-agent's own prompt template tells the agent to
+# write `MY_ENV_VAR=MY_VALUE cd /path && ...`, so this is a routine input, not an edge case.
+_ENV_ASSIGN = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
+
+
+# A shell agent working in a repo prefixes almost everything with a directory change, so
+# taking the first token of the line names the navigation instead of the work. On the
+# 28-instance SWE-bench corpus this was not a corner case: 339 of 1,004 commands (33.8%)
+# recorded as `bash:cd`, and every one of them was `cd <dir> && <the actual command>`. A
+# third of the vocabulary stood for nothing, and any flow signature mined from it keyed on
+# the wrong verb.
+#
+# Splitting on the operators is safe for this purpose because only the command NAME is
+# ever kept from whichever segment wins — the same allowlist applies to it, so a `&&`
+# inside a quoted argument can at worst cost detail, never leak a fragment of data.
+_NAVIGATION_PREFIX = re.compile(r"&&|\|\||;")
+_NAVIGATION_VERBS = {"cd", "pushd", "popd", "export", "source", "set", "unset"}
+
+
+def _command_verb(command: str) -> Optional[str]:
+    """The command name a shell line invokes, or None when it cannot be named safely.
+
+    Only a bare command name is ever returned. Everything else in the line — paths,
+    patterns, source text, credentials — is the user's data and is discarded. When the
+    first meaningful token does not look like a command name, this returns None rather
+    than guessing, because a wrong guess here writes user data into the ledger.
+    """
+    for segment in _NAVIGATION_PREFIX.split(command.strip()):
+        verb = _segment_verb(segment)
+        if verb is None:
+            continue                      # unnameable segment: try the next one
+        if verb in _NAVIGATION_VERBS:
+            continue                      # `cd /repo && grep ...` is a grep, not a cd
+        return verb
+    # Nothing but navigation: `cd /repo` really is a cd. Report the first nameable verb.
+    for segment in _NAVIGATION_PREFIX.split(command.strip()):
+        verb = _segment_verb(segment)
+        if verb is not None:
+            return verb
+    return None
+
+
+def _segment_verb(segment: str) -> Optional[str]:
+    for token in segment.strip().split():
+        if _ENV_ASSIGN.match(token):
+            continue                      # VAR=VALUE prefix: keep looking for the verb
+        token = token.strip("'\"")       # a quoted verb is still that verb
+        token = token.split("/")[-1]      # /usr/bin/grep and grep are one action
+        return token if _VERB.match(token) else None
+    return None
+
+
+def _refine_action(name: str, arguments) -> str:
+    """``tool`` normally, ``tool:verb`` for shell-style tools.
+
+    Only the command NAME is kept. That name is what distinguishes one ritual from
+    another — ``bash:grep`` from ``bash:sed`` — and everything else in the line is the
+    user's data. When the name cannot be established safely the bare tool name is
+    returned, so the tap degrades to less detail rather than to leaked content.
+    """
+    if name not in _COMMAND_TOOLS and name not in _SUBCOMMAND_TOOLS:
+        return name
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            return name
+    if not isinstance(arguments, dict):
+        return name
+    if name in _SUBCOMMAND_TOOLS:
+        op = arguments.get("command")
+        if isinstance(op, str) and _SUBCOMMAND.match(op):
+            return f"{name}:{op}"
+        return name
+    for key in _COMMAND_ARG_KEYS:
+        raw = arguments.get(key)
+        if isinstance(raw, str) and raw.strip():
+            verb = _command_verb(raw)
+            return f"{name}:{verb}" if verb else name
+    return name
+
+
+# Harnesses that predate tool calling ask the model to emit the command in markup and
+# parse it out of the response text. mini-swe-agent still ships three such configs
+# (`<mswea_bash_command>`, a ```mswea_bash_command fence, a plain ```bash fence) and its
+# XML one is the only format some SFT'd models will reliably produce — SWE-Lego-Qwen3-8B
+# writes prose instead of a tool call under the tool-calling config, but emits the XML tag
+# without trouble. A tap that only reads `tool_calls` records nothing for those runs.
+_TEXT_ACTIONS = [
+    re.compile(r"<mswea_bash_command>(.*?)</mswea_bash_command>", re.S),
+    re.compile(r"```(?:mswea_bash_command|bash|sh|shell)\n(.*?)```", re.S),
+]
+
+# OpenHands' non-native tool calling. It ships the tool schemas inside the prompt and asks
+# for this markup back, which is the only mode a model that cannot emit native tool calls
+# under agent-shaped prompts can work in — and therefore the mode its traces arrive in.
+#
+#   <function=execute_bash>
+#   <parameter=command>cd /repo && pytest -x</parameter>
+#
+# Two details, both observed rather than assumed. There is NO closing </function>: a
+# pattern requiring one matches nothing and records an empty action list, which reads as
+# "the model called no tools" instead of "the tap cannot read this harness". And the final
+# </parameter> is sometimes absent too, so the last value runs to the end of the block.
+_OH_FUNCTION = re.compile(r"<function=([A-Za-z0-9_.\-]{1,64})>", re.S)
+_OH_PARAM = re.compile(r"<parameter=([A-Za-z0-9_.\-]{1,64})>(.*?)(?:</parameter>|\Z)", re.S)
+
+
+def _openhands_text_actions(content: str) -> list:
+    """(action, digest) per `<function=...>` block, in order."""
+    out = []
+    starts = list(_OH_FUNCTION.finditer(content))
+    for i, m in enumerate(starts):
+        end = starts[i + 1].start() if i + 1 < len(starts) else len(content)
+        block = content[m.end():end]
+        args = {k: v for k, v in _OH_PARAM.findall(block)}
+        # Same minimisation as every other path: _refine_action keeps the verb for a shell
+        # tool and the sub-command for an editor, and never echoes a value it cannot vouch
+        # for. The digest carries identity so repetition is measurable without content.
+        out.append((_refine_action(m.group(1), args), _payload_digest(args)))
+    return out
+
+
+def _text_actions(content: Optional[str]) -> list:
+    """Commands a response asked for in markup rather than through a tool call.
+
+    Same minimisation as the tool-call path: only the command name survives. The order is
+    the order the commands appear in the text.
+    """
+    if not content:
+        return []
+    out = _openhands_text_actions(content)
+    if out:
+        return out
+    for pattern in _TEXT_ACTIONS:
+        for match in pattern.finditer(content):
+            raw = match.group(1)
+            verb = _command_verb(raw)
+            out.append((f"bash:{verb}" if verb else "bash", _payload_digest(raw)))
+        if out:
+            break        # first format that matches wins; do not double-count a fence
+    return out
+
+
+def extract_actions(dialect: str, body: Optional[dict],
+                    sse_text: Optional[str]) -> Optional[list]:
+    """The tool calls this response actually made, in order.
+
+    ``_tool_names`` records the tools a request *offered*, which is what prefix-mutation
+    detection needs. This records the ones the model *invoked*, which is what a flow is
+    made of. Without it a signature can only be mined from whatever corpus produced the
+    skill, never from the harness it is deployed into — and a signature in the wrong
+    harness's vocabulary is dead code that looks alive (RFC-002 §6).
+
+    Returns None when the response could not be read at all, distinguished from ``[]``
+    meaning a response that genuinely called no tools.
+    """
+    pairs = _action_pairs(dialect, body, sse_text)
+    return None if pairs is None else [action for action, _ in pairs]
+
+
+def extract_action_digests(dialect: str, body: Optional[dict],
+                           sse_text: Optional[str]) -> Optional[list]:
+    """Per-action digests, positionally aligned with ``extract_actions``.
+
+    Repetition is a question about the same *work* recurring, and the action name cannot
+    answer it: three greps narrowing a search and three identical greps going nowhere are
+    both ``bash:grep``. These carry the identity the name drops, without carrying content.
+    An entry is None when the call had no arguments to identify it by.
+    """
+    pairs = _action_pairs(dialect, body, sse_text)
+    return None if pairs is None else [digest for _, digest in pairs]
+
+
+def _action_pairs(dialect: str, body: Optional[dict],
+                  sse_text: Optional[str]) -> Optional[list]:
+    """(action, digest) per call — one parse, so the two lists cannot drift apart."""
+    try:
+        if body is not None:
+            return (_anthropic_actions_body(body) if dialect == "anthropic"
+                    else _openai_actions_body(body))
+        if sse_text is None:
+            return None
+        return (_anthropic_actions_stream(sse_text) if dialect == "anthropic"
+                else _openai_actions_stream(sse_text))
+    except Exception:
+        return None  # fail-open: an unparseable response never costs us the row
+
+
+def _openai_actions_body(body: dict) -> list:
+    out = []
+    for choice in body.get("choices") or []:
+        message = choice.get("message") or {}
+        for call in message.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            if fn.get("name"):
+                out.append((_refine_action(fn["name"], fn.get("arguments")),
+                            _payload_digest(fn.get("arguments"))))
+        if not out:
+            # No tool call: the harness may be parsing the command out of the text.
+            out.extend(_text_actions(message.get("content")))
+    return out
+
+
+def _openai_actions_stream(sse_text: str) -> list:
+    """Accumulate by tool_calls index: the name arrives once, arguments in fragments.
+
+    Two details matter and neither is hypothetical. A provider that omits ``index``
+    entirely would collapse every call into slot 0 and lose all but the last, so a *name*
+    arriving at a slot that already has one opens a new slot instead of overwriting.
+    And deltas can arrive out of index order, while a flow signature is an ordered suffix
+    match — so the result is ordered by index, not by arrival.
+    """
+    slots: list = []          # [{"index", "name", "args"}], in creation order
+    by_index: dict = {}       # index -> the open slot currently accumulating for it
+    for data in _sse_datas(sse_text):
+        for choice in data.get("choices") or []:
+            for call in (choice.get("delta") or {}).get("tool_calls") or []:
+                idx = call.get("index", 0)
+                fn = call.get("function") or {}
+                slot = by_index.get(idx)
+                if slot is None or (fn.get("name") and slot["name"]):
+                    slot = {"index": idx, "name": None, "args": ""}
+                    slots.append(slot)
+                    by_index[idx] = slot
+                if fn.get("name"):
+                    slot["name"] = fn["name"]
+                if isinstance(fn.get("arguments"), str):
+                    slot["args"] += fn["arguments"]
+    named = [s for s in slots if s["name"]]
+    named.sort(key=lambda s: s["index"])   # stable: ties keep creation order
+    if named:
+        return [(_refine_action(s["name"], s["args"]), _payload_digest(s["args"]))
+                for s in named]
+    # Streamed text-format response: reassemble the content and parse markup from it.
+    text = "".join(
+        (choice.get("delta") or {}).get("content") or ""
+        for data in _sse_datas(sse_text) for choice in data.get("choices") or [])
+    return _text_actions(text)
+
+
+def _anthropic_actions_body(body: dict) -> list:
+    out = []
+    for block in body.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name"):
+            out.append((_refine_action(block["name"], block.get("input")),
+                        _payload_digest(block.get("input"))))
+    if not out:
+        for block in body.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                out.extend(_text_actions(block.get("text")))
+    return out
+
+
+def _anthropic_actions_stream(sse_text: str) -> list:
+    """content_block_start carries the name; input arrives as input_json_delta fragments.
+
+    Each start opens its own slot even when an index repeats, so a reused index cannot
+    make two distinct calls render as the last one twice.
+    """
+    slots: list = []
+    by_index: dict = {}
+    for data in _sse_datas(sse_text):
+        kind = data.get("type")
+        if kind == "content_block_start":
+            block = data.get("content_block") or {}
+            if block.get("type") == "tool_use" and block.get("name"):
+                slot = {"name": block["name"], "args": ""}
+                slots.append(slot)
+                by_index[data.get("index", len(slots) - 1)] = slot
+        elif kind == "content_block_delta":
+            slot = by_index.get(data.get("index"))
+            delta = data.get("delta") or {}
+            if slot is not None and isinstance(delta.get("partial_json"), str):
+                slot["args"] += delta["partial_json"]
+    return [(_refine_action(s["name"], s["args"]), _payload_digest(s["args"]))
+            for s in slots]
+
+
 def _sse_datas(sse_text: str):
     for line in sse_text.splitlines():
         if line.startswith("data:"):
@@ -260,6 +633,11 @@ class Taps:
                                          self._prev_prompt_tokens.get(session))
         usage, model = extract_usage(dialect, response_json, response_sse)
         model = model or request_json.get("model")
+        # One parse for both: the digests are positionally aligned with the actions, and
+        # deriving them from a second parse would let the two lists drift.
+        _pairs = _action_pairs(dialect, response_json, response_sse)
+        actions = None if _pairs is None else [a for a, _ in _pairs]
+        action_digests = None if _pairs is None else [d for _, d in _pairs]
 
         cost, cost_error = None, None
         profile = self.config.profile_for(dialect)
@@ -286,6 +664,18 @@ class Taps:
             "latency_ms": round(latency_ms, 1),
             "usage": usage,  # exactly as the provider sent it
             "gateway_injected": injected,
+            # The tool calls this step actually made, in order — the unit a flow
+            # signature is built from. None means the response was unreadable; [] means
+            # it read fine and called nothing.
+            "actions": actions,
+            # Same length and order as `actions`. Identity of the call's arguments, not
+            # their content — this is what separates a narrowing search from a loop, which
+            # the action name alone cannot do. None per entry = no arguments to key on.
+            "action_digests": action_digests,
+            # Digests are salted per gateway process. Rows from different epochs are NOT
+            # comparable, and comparing them would silently under-count repetition rather
+            # than fail, so the epoch is recorded and analysis must check it.
+            "digest_epoch": _DIGEST_EPOCH if action_digests else None,
             "prefix_stable_ratio": ratio,
             # Cache-critical segment change (tools/system/model) since the previous
             # call in this session, with its marginal re-write cost. None = unchanged.

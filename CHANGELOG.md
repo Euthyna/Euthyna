@@ -2,6 +2,138 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Command arguments could leak into the ledger through an env-assignment prefix.** The
+  action tap kept the first whitespace token of a shell command as the verb, so
+  `AWS_SECRET_ACCESS_KEY=... grep foo .` recorded the *assignment*, secret included. Not
+  hypothetical: mini-swe-agent's own prompt template instructs the agent to write
+  `MY_ENV_VAR=MY_VALUE cd /path && ...`. Also leaked when the whole command was a single
+  token with no spaces (a URL with a query token, a base64 blob).
+  Leading `VAR=VALUE` prefixes are now skipped to find the real verb, and the verb must
+  match an **allowlist** shape — at most 16 characters and containing a lowercase letter,
+  since command names are lowercase by convention while keys and env-var names are upper.
+  Anything else records as the bare tool name: less detail, never content. A property test
+  sweeps a credential across six positions in the line; it was that test, not the
+  hand-picked cases, that caught a line consisting of nothing but an access key.
+  Residual risk is documented in the source rather than papered over: a short all-lowercase
+  high-entropy token still passes.
+- **Pairs that could not be priced vanished from `compare_cost` without a count.** Both
+  arms solved, but a run had no cost, so the pair was skipped — `pairs` shrank and
+  `dropped_discordant` did not move, leaving no stated reason. With the overlap fix above
+  this became load-bearing: every pair can go unpriced at once, and the output would have
+  read `pairs: 0, dropped: 0`, indistinguishable from having no data. Now counted as
+  `unpriced`, shown as its own column, and given the verdict **`UNPRICED`** rather than
+  `UNDERPOWERED` — blaming the sample size for a plumbing failure sends someone to run
+  more reps that cannot help.
+- **`window_costs` double-counted every call shared by two overlapping run windows.**
+  Window attribution assumes one call belongs to one run, which holds only for serial
+  runs; with parallel workers the windows interleave and a shared call was counted in
+  both, inflating every arm. One 1,050 tok-eq call attributed 2,100. `overlapping_runs`
+  now names the affected runs and they are left **unpriced** so they drop out of the
+  comparison, with the CLI saying so — unknown is never rendered as a number.
+- **Three streaming action-parser defects**, all of which corrupt flow signatures:
+  deltas that omit `index` collapsed into one slot and lost every call but the last;
+  results came back in arrival order rather than index order, which mis-keys an ordered
+  suffix match; and a reused Anthropic `content_block` index made two distinct calls
+  render as the last one twice.
+
+### Added
+- **`weights_from_prices`** — token-equivalent weights derived from each row's own price
+  sheet instead of one provider's constants. A tok-eq normalises everything to "one
+  uncached input token", so each weight is that class's price over the input price.
+  Anthropic Opus reproduces the frozen constants exactly (0.10 / 1.25 / 5.0), which is
+  what validates the derivation; DeepSeek V4-Pro yields 0.0083 for a cache read (twelve
+  times cheaper) and 2.0 for output (not 5.0). `step_cost` now weights each row by the
+  provider it was billed under. A sheet priced at $0 — every local model — has no
+  denominator and falls back, with every weight marked `assumed` rather than silently
+  substituted.
+- **`repetition` line in `euthyna report`** — spend sitting inside runs of the same command
+  repeated until it stopped helping, charged from the third occurrence (the first two are
+  the ordinary shape of narrowing a search). On a 28-instance SWE-bench corpus this is
+  **~59% of actions and ~63% of all spend**, with a longest run of 39 identical `find` calls.
+  Measured per session, never across, and rows without recorded actions are skipped rather
+  than assumed innocent.
+- **mini-swe-agent integration** in `docs/SETUP.md` — zero fork and, unlike opencode,
+  deliberately **no session plugin**. mini-swe-agent builds its model per instance inside
+  `process_instance()`, so a per-instance header would mean patching the runner, and a
+  header set once per batch would collapse every instance into one session. The gateway's
+  prefix-chaining handles it instead: two instances run back to back produced two distinct
+  sessions with `prefix_stable_ratio` 1.0 inside each, and content-keyed grouping survives
+  parallel workers that a process-scoped header would not. Documents the two measured
+  gotchas — `MSWEA_COST_TRACKING=ignore_errors` (litellm aborts computing cost for a local
+  model) and the context window, which a toy task overran *after* solving.
+- **`euthyna skills` reports trigger reachability** against the action vocabulary
+  measured from your own ledger, not an assumed one. A signature can only match a harness
+  that emits those action names, so a skill mined from one harness and deployed into
+  another is dead code that looks alive — `match()` cannot say so, because never-matching
+  and not-yet-matching are the same observation. All three shipped skills come back DEAD
+  against opencode traffic. When no vocabulary has been observed the command says
+  reachability is UNKNOWN rather than treating silence as a clean bill of health.
+- **`observed_vocabulary` / `action_coverage`** on the ledger, which skip rows that
+  predate the actions tap and rows whose response was unreadable instead of folding them
+  in as "no actions" — the same unknown-is-not-zero rule the cache fields follow.
+- **`measured_steps_replaced` / `measured_in`** on a skill, with the same precedence rule
+  as `measured_body_tokens`: measured beats declared. `steps_replaced` is inherited from
+  the corpus a skill was mined from and travels with the file, so the economics gate would
+  return PAYS on a number that was never true of the workload in front of it.
+  `swe-patch-probe` declares 6 and now carries a measured **0** from the cost-primary run
+  — its verdict moves PAYS → CANNOT_PAY, and the gate message names both the basis and the
+  workload. A measured zero is honoured rather than read as absent.
+- **`actions` on every ledger row** — the tool calls a step actually made, in order.
+  `_tool_names` records the tools a request *offered*, which is what prefix-mutation
+  detection needs; this records the ones the model *invoked*, which is what a flow is
+  made of. Without it a signature can only be mined from whatever corpus produced a
+  skill, never from the harness it is deployed into. Both dialects, streaming and not;
+  fragmented streaming arguments are accumulated by index. `None` means the response was
+  unreadable, `[]` means it read fine and called nothing — never conflated.
+  For shell-style tools only the **first token** of the command is kept (`bash:grep`,
+  not the pattern): the verb is what distinguishes one ritual from another and
+  everything after it is the user's data.
+- **`step_cost_quality`** — the quality of a token-equivalent step cost is not the
+  quality of the bill. `cost_quality` clears a row whose cache rates equal its input
+  rate, which for a local model priced at zero is every row: the dollar total is exactly
+  $0 however the prompt was cached. `step_cost` weights uncached at 1.0 against cached at
+  0.10 regardless, so a row can be an exact $0 and a 10x-uncertain step. Surfaced by
+  `euthyna experiment analyze --window-costs`, which now reports how many calls were
+  priced under a no-cache assumption instead of leaving it implicit.
+- **`euthyna experiment calibrate`** — which tasks a cost experiment can be run on, with
+  exact one-sided Clopper-Pearson bounds beside every point estimate, because 3/3 clean
+  runs only rule out a solve rate below 0.37.
+- **`baseline_check`** on every `analyze` result — refuses to be read silently when the
+  control arm solves nothing (no cost comparison is possible) or everything (binary
+  endpoint saturated, which is the regime a cost experiment wants).
+- **`window_costs`** — cost attributed by each run's `[started_at, ended_at]` rather than
+  by session id, since one agent invocation can open more than one upstream session.
+- **Skew flag** on cost rows where the per-pair median and the total disagree in sign;
+  the verdict follows the median.
+- **Cost-primary analysis** — `compare_cost`, Wilcoxon signed-rank, surfaced by
+  `euthyna experiment analyze`. On tasks the baseline already solves, the interesting
+  question is not whether it worked but what it cost, and that endpoint is a paired
+  continuous magnitude rather than one bit per run: **13 paired runs for 80% power
+  against 650 for the binary endpoint**, fifty times cheaper. Cost is compared only on
+  pairs both arms solved — discordant pairs are dropped and counted, never averaged —
+  and resolve rate rides along as a non-inferiority guard, so a cost win with a quality
+  regression reports `QUALITY_REGRESSED` whatever its p-value. RFC-002 §5.1.
+- **Cost per solved task** in `euthyna experiment analyze`. A cheap failure is not
+  cheap — its tokens bought nothing and the task still has to be done — so comparing
+  per-run cost across arms with different outcomes flatters whichever arm gives up
+  fastest. Cost is now reported per arm against the number of tasks it actually
+  solved, and an arm that solved nothing reports **no** cost per solve rather than a
+  small number. On the pilot data the control arm burned 120k more tokens than the
+  candidate arm and solved nothing, while the cheapest arm in raw tokens was the A/A
+  sham, which gave up fastest.
+
+### Changed
+- **Skill token estimation is now calibrated against a measurement.** Running a real
+  skill document through the gateway put chars/4 **31% low** (204 observed vs 156
+  estimated, stable across three sessions). Under-pricing is the direction that admits
+  skills which cannot pay, so `estimate_tokens` carries the correction and a skill may
+  record `measured_body_tokens` to override it outright — measured always beats
+  estimated. Evidence and two further findings in
+  `docs/examples/skill-pilot/MEASUREMENTS.md`, including that the document is not in
+  the prefix from turn one (so the hold horizon is `R−1`), and that its footprint is
+  2.4% of a session while step count varies up to 30× on the same task.
+
 ### Added
 - **Paired A/B harness** (RFC-002 layer 2) — `euthyna experiment plan|analyze`.
   `plan` turns a spec into a reproducible randomised run list (seeded Fisher-Yates

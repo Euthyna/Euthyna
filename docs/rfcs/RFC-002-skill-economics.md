@@ -113,6 +113,74 @@ zeroed the entire cache including the system prompt? One request pair each.
 
 ## 5. Layer 2 — the paired harness (an instrument, not an intervention)
 
+### 5.1 Amendment (2026-07-29) — measure cost on tasks the baseline already solves
+
+The first pilot ran on tasks the baseline solved **0 of 3** times. On such tasks the
+binary endpoint measures *capability*, and cost comparison is not merely weak but
+meaningless: the cost of a run that failed is not comparable to the cost of a run that
+succeeded. The pilot write-up made exactly that mistake before it was caught.
+
+For a cost auditor the right regime is the opposite one: **tasks the baseline solves
+reliably**, where the outcome is held fixed and the only thing that varies is spend.
+That turns the endpoint from one bit per run into a paired continuous magnitude, and
+each task becomes its own control, so between-task variance — the dominant term in
+agent work — cancels.
+
+| endpoint | test | n for 80% power |
+|---|---|---|
+| binary resolve | exact McNemar | **650 paired runs** |
+| **paired cost** | Wilcoxon signed-rank | **13 paired runs** |
+
+Fifty times cheaper: eleven hours of local compute becomes twenty minutes.
+
+Consequences, all implemented:
+
+- Cost is compared **only on pairs both arms solved**; discordant pairs are dropped and
+  counted, never averaged in.
+- Resolve rate is carried as a **non-inferiority guard**: a cost win with a resolve
+  regression reports `QUALITY_REGRESSED` regardless of the p-value.
+- Task selection acquires a criterion. Because discordant pairs are dropped rather than
+  averaged, an unreliable task does not bias the estimate — it costs *pairs*. So
+  reliability is a power question with a numeric answer,
+  `scheduled = target / (p_a · p_b)`, and establishing it is a calibration run rather
+  than an experiment. `euthyna experiment calibrate`.
+- `analyze` refuses to be read silently in the bad regime: `baseline_check` reports
+  `never_solves` (no cost comparison is possible) or `always_solves` (binary endpoint
+  saturated — which is the regime a cost experiment *wants*).
+
+This mirrors the guarded-lossless / loss-tolerant split from the underlying research
+programme: hold quality constant and measure spend, rather than hoping to see both move
+at once.
+
+### 5.2 Amendment (2026-07-29) — the delivery channel is a variable
+
+The pilot delivered the skill as an `AGENTS.md` file and compared it against a control
+that carried nothing. Its arms therefore differed in **two** ways, not one: what the
+document said, and whether a document existed. A placebo arm controls the first. Nothing
+controlled the second.
+
+The pilot's arms did separate exactly along that line — all six runs without an
+`AGENTS.md` failed, five of six with one succeeded. That looked like the explanation,
+and a direct test refused to confirm it: with the same broken prompt, adding an inert
+`AGENTS.md` moved the solve rate from 1/3 to 2/3, Fisher exact **p = 1.0**. The
+container is not the cause, and the pilot's pattern has no confirmed explanation.
+
+Which is the point. The lesson does not rest on the container turning out to matter:
+
+> An intervention delivered as a file changes the workspace, not just the prompt. The
+> container is a variable even when it is meant to be a wrapper.
+
+An uncontrolled variable does not have to be the cause to make a result unreadable. It
+only has to be uncontrolled — after which no amount of analysis can rule it out, and the
+experiment has to be rerun rather than reinterpreted. That is what happened here.
+
+So: **an arm that adds a file must be compared against an arm that adds an inert file,
+not against an arm that adds nothing.** The placebo is promoted from good practice to a
+required arm whenever delivery is document-style. And the abandon criterion in §5 is
+restated against the placebo, not against the empty control — `candidate ≤ placebo` is
+the failure condition, because `candidate > empty control` can be satisfied by the
+container alone.
+
 Power arithmetic decides the design:
 
 | Design | n to detect +1.2pp at 80% power |
@@ -220,7 +288,42 @@ paired harness can produce. **Building the instrument first costs no optionality
    hold-cost arithmetic, but if useful skills cannot be written that small, the whole
    design changes.
 2. Is signature keying too brittle? It buys exactness and cheap runtime at the cost of
-   generalisation to flows that differ superficially.
-3. Should the abandon criterion in §5 be stricter — for example, requiring the
+   generalisation to flows that differ superficially. **Measured, and worse than
+   brittle:** a signature is a sequence of action names, so it can only match a harness
+   that emits those names. All three skills in this repository were mined from
+   mini-SWE-agent, whose single tool makes every action `bash:*`; against opencode's
+   observed vocabulary (`read`, `glob`, `edit`, `bash:python`) the intersection is empty
+   and all three are inert at every prefix of every trajectory. `match()` cannot report
+   this, because never-matching is indistinguishable from not-yet-matching.
+   `SkillRegistry.dead_triggers` now names them. The open question is what replaces exact
+   suffix matching: a per-harness action alphabet with a translation layer, or abandoning
+   cross-harness portability and mining separately per harness.
+3. **The cost endpoint and the intervention want opposite workloads, and this has no
+   clean resolution.** §5.1 requires tasks the baseline solves reliably, because a failed
+   run's cost is not comparable to a solved run's. But a skill that saves work saves it
+   precisely where the agent would otherwise flounder — in the cost-primary run, 49 of 56
+   runs took 7–8 calls and were solved first try, so `swe-patch-probe` had nothing to
+   amortise and cost 6% more for nothing. Measuring on harder tasks restores the
+   opportunity and destroys the endpoint: outcomes stop being held constant and the
+   binary endpoint needs ~650 pairs. Three options, none satisfying:
+   (a) stratify — calibrate solve rate per task and measure cost only within the band
+   where it is high *and* trajectories are long, which may be empty;
+   (b) change the endpoint to cost **conditional on success**, accepting that it says
+   nothing about the runs that failed;
+   (c) accept that skills addressing failure modes cannot be evaluated on cost at all,
+   and evaluate them on variance or worst-case instead — the tail is where a 27.5×
+   waste run lives, and a mean or median cannot see it.
+   The tail argument is attractive and the A/A arm already refutes the naive version of
+   it: candidate's worst run was 12 calls against control's 16, which looks like the
+   skill tightening the tail until you notice `aa_sham` — the same treatment as control —
+   had a worst run of 8. At n = 14 the tail is noise. Any tail-based endpoint needs its
+   own power analysis before it is used, not after.
+4. Should the abandon criterion in §5 be stricter — for example, requiring the
    candidate to beat raw-trajectory retrieval by a margin rather than merely tie?
-4. Which harnesses should the delivery measurement in §7 cover first?
+5. Which harnesses should the delivery measurement in §7 cover first?
+6. `steps_replaced` is declared in a skill's front matter and inherited from the corpus
+   it was mined from, and the economics gate returns PAYS on that number alone.
+   `swe-patch-probe` declares 6, mined from mini-SWE-agent; in the cost-primary workload
+   it replaced **zero**, because the flow it keys on never occurred. Should a skill be
+   presentable at all before its step replacement has been measured in the workload it is
+   deployed into — i.e. should UNPRICED be a hard gate rather than a verdict?

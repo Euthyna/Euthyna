@@ -404,3 +404,390 @@ async def test_healthz_and_stats(gateway):
     assert stats["calls"] == 1
     assert stats["prompt_tokens"] == 100
     assert stats["sessions"] == 1
+
+
+# --- extract_actions: the tool calls a response actually made -------------------------
+
+def test_openai_body_actions_in_order():
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"tool_calls": [
+        {"function": {"name": "glob", "arguments": '{"pattern":"*.py"}'}},
+        {"function": {"name": "read", "arguments": '{"path":"a.py"}'}},
+    ]}}]}
+    assert extract_actions("openai", body, None) == ["glob", "read"]
+
+
+def test_openai_stream_accumulates_name_and_arguments_by_index():
+    """The name arrives once; arguments arrive as fragments across later deltas."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"bash","arguments":"{\\"comm"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\\":\\"grep -rn foo .\\"}"}}]}}]}',
+        "data: [DONE]",
+    ])
+    assert extract_actions("openai", None, sse) == ["bash:grep"]
+
+
+def test_anthropic_body_and_stream_agree():
+    from euthyna.gateway.taps import extract_actions
+    body = {"content": [
+        {"type": "text", "text": "thinking"},
+        {"type": "tool_use", "name": "bash", "input": {"command": "sed -i s/a/b/ f.py"}},
+    ]}
+    assert extract_actions("anthropic", body, None) == ["bash:sed"]
+    sse = "\n".join([
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"bash"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"command\\":\\"sed -i s/a/b/ f.py\\"}"}}',
+    ])
+    assert extract_actions("anthropic", None, sse) == ["bash:sed"]
+
+
+def test_only_the_command_verb_is_kept_never_its_arguments():
+    """The verb distinguishes rituals; the rest is the user's data and is discarded."""
+    from euthyna.gateway.taps import _refine_action
+    secret = "grep -rn 'AKIAIOSFODNN7EXAMPLE' /home/loki/.aws/credentials"
+    assert _refine_action("bash", {"command": secret}) == "bash:grep"
+    got = _refine_action("bash", {"command": secret})
+    assert "AKIA" not in got and "credentials" not in got and "loki" not in got
+
+
+def test_absolute_paths_and_plain_verbs_are_the_same_action():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("bash", {"command": "/usr/bin/grep x ."}) == "bash:grep"
+    assert _refine_action("bash", {"command": "grep x ."}) == "bash:grep"
+
+
+def test_non_command_tools_are_not_refined():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("read", {"path": "a.py"}) == "read"
+    assert _refine_action("edit", '{"file":"a.py"}') == "edit"
+
+
+def test_unreadable_response_is_none_but_a_toolless_one_is_empty():
+    """None and [] must not be conflated: unknown is never rendered as 'called nothing'."""
+    from euthyna.gateway.taps import extract_actions
+    assert extract_actions("openai", None, None) is None
+    assert extract_actions("openai", {"choices": [{"message": {"content": "hi"}}]}, None) == []
+    assert extract_actions("openai", None, "data: not json\n") == []
+
+
+def test_malformed_arguments_degrade_to_the_bare_tool_name():
+    from euthyna.gateway.taps import extract_actions, _refine_action
+    assert _refine_action("bash", "{not json") == "bash"
+    body = {"choices": [{"message": {"tool_calls": [
+        {"function": {"name": "bash", "arguments": "{truncated"}}]}}]}
+    assert extract_actions("openai", body, None) == ["bash"]
+
+
+# --- streaming action-parser regressions ---------------------------------------------
+
+def test_deltas_without_an_index_do_not_collapse_into_one_call():
+    """A provider that omits `index` would otherwise lose every call but the last."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"read","arguments":"{}"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"function":{"name":"edit","arguments":"{}"}}]}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["read", "edit"]
+
+
+def test_actions_are_ordered_by_index_not_arrival():
+    """A signature is an ordered suffix match, so arrival order would mis-key it."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"name":"edit"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"read"}}]}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["read", "edit"]
+
+
+def test_arguments_still_accumulate_across_fragments_after_the_reorder():
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"bash","arguments":"{\\"comm"}}]}}]}',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\\":\\"grep -rn x .\\"}"}}]}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["bash:grep"]
+
+
+def test_anthropic_reused_block_index_keeps_both_calls_distinct():
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"bash"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"command\\":\\"grep x\\"}"}}',
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"bash"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"partial_json":"{\\"command\\":\\"sed y\\"}"}}',
+    ])
+    assert extract_actions("anthropic", None, sse) == ["bash:grep", "bash:sed"]
+
+
+# --- privacy: only a bare command name may ever reach the ledger ----------------------
+
+def test_env_assignment_prefix_does_not_leak_its_value():
+    """Where secrets actually live. mini-swe-agent's own prompt template tells the agent
+    to write `MY_ENV_VAR=MY_VALUE cd /path && ...`, so this is routine input."""
+    from euthyna.gateway.taps import _refine_action
+    got = _refine_action("bash", {"command": "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI grep foo ."})
+    assert got == "bash:grep"
+    assert "wJalrX" not in got
+    got = _refine_action("bash", {"command": "A=1 B=2 C=3 sed -i s/x/y/ f.py"})
+    assert got == "bash:sed"
+
+
+def test_a_token_that_is_not_a_command_name_yields_no_detail():
+    """Allowlist, not denylist: an unrecognised shape is data and gets discarded."""
+    from euthyna.gateway.taps import _refine_action
+    for cmd in ["curl?token=ghp_AbCdEf123456789",
+                "aGVsbG8gd29ybGQgc2VjcmV0IHRva2VuIGRvbnQgbGVhaw==",
+                "x" * 40,
+                "--flag-only"]:
+        assert _refine_action("bash", {"command": cmd}) == "bash", cmd
+
+
+def test_ordinary_command_names_still_survive():
+    from euthyna.gateway.taps import _refine_action
+    for cmd, want in [("grep -rn foo .", "bash:grep"),
+                      ("python3 -m pytest -q", "bash:python3"),
+                      ("apt-get install -y curl", "bash:apt-get"),
+                      ("/usr/bin/grep pattern .", "bash:grep"),
+                      ('"grep" -rn x .', "bash:grep"),
+                      ("g++ -o a a.cc", "bash:g++")]:
+        assert _refine_action("bash", {"command": cmd}) == want, cmd
+
+
+def test_no_command_at_all_degrades_to_the_tool_name():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("bash", {"command": "   "}) == "bash"
+    assert _refine_action("bash", {"command": "FOO=1"}) == "bash"   # assignment only
+    assert _refine_action("bash", {}) == "bash"
+
+
+def test_a_credential_never_survives_any_position_in_the_line():
+    """Property check across positions rather than one hand-picked case."""
+    from euthyna.gateway.taps import _refine_action
+    secret = "AKIAIOSFODNN7EXAMPLE"
+    lines = [
+        f"grep -rn {secret} /home/u/.aws/credentials",
+        f"TOKEN={secret} python3 deploy.py",
+        f"curl -H 'Authorization: {secret}' https://api.example.com",
+        f"echo {secret} >> .env",
+        f"{secret}",
+        f"env AWS_KEY={secret} aws s3 ls",
+    ]
+    for line in lines:
+        got = _refine_action("bash", {"command": line})
+        assert secret not in got, (line, got)
+        assert got.count(":") <= 1 and len(got) <= 40, (line, got)
+
+
+# --- text-format harnesses (pre-tool-call action markup) ------------------------------
+
+def test_xml_action_markup_is_recorded_when_there_is_no_tool_call():
+    """mini-swe-agent's XML config is the only format some SFT'd models reliably emit."""
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"content":
+        "Let me look.\n\n<mswea_bash_command>ls -la requests/</mswea_bash_command>"}}]}
+    assert extract_actions("openai", body, None) == ["bash:ls"]
+
+
+def test_fenced_action_markup_is_recorded():
+    from euthyna.gateway.taps import extract_actions
+    for content, want in [
+        ("THOUGHT: check\n\n```mswea_bash_command\ngrep -rn foo .\n```", ["bash:grep"]),
+        ("```bash\nsed -i s/a/b/ f.py\n```", ["bash:sed"]),
+        ("```sh\npython3 -m pytest\n```", ["bash:python3"]),
+    ]:
+        assert extract_actions("openai", {"choices": [{"message": {"content": content}}]},
+                               None) == want, content
+
+
+def test_a_tool_call_always_wins_over_text_markup():
+    """Otherwise a harness using tool calls could be misread from stray prose."""
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {
+        "tool_calls": [{"function": {"name": "bash", "arguments": '{"command":"ls"}'}}],
+        "content": "<mswea_bash_command>rm -rf /</mswea_bash_command>"}}]}
+    assert extract_actions("openai", body, None) == ["bash:ls"]
+
+
+def test_text_markup_gets_the_same_privacy_minimisation():
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"content":
+        "<mswea_bash_command>AWS_KEY=wJalrXUtnFEMI grep x .</mswea_bash_command>"}}]}
+    got = extract_actions("openai", body, None)
+    assert got == ["bash:grep"] and "wJalrX" not in got[0]
+
+
+def test_prose_with_no_action_is_empty_not_none():
+    from euthyna.gateway.taps import extract_actions
+    body = {"choices": [{"message": {"content": "just prose, no action here"}}]}
+    assert extract_actions("openai", body, None) == []
+
+
+def test_streamed_text_format_is_reassembled_before_parsing():
+    """The command can be split across deltas; parsing per-chunk would miss it."""
+    from euthyna.gateway.taps import extract_actions
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"content":"Let me check.\\n\\n<mswea_bash_"}}]}',
+        'data: {"choices":[{"delta":{"content":"command>grep -rn x .</mswea_bash_command>"}}]}',
+    ])
+    assert extract_actions("openai", None, sse) == ["bash:grep"]
+
+
+def test_editor_subcommand_is_kept_so_reading_differs_from_editing():
+    """OpenHands routes view/create/str_replace through ONE tool name, so collapsing them
+    erases the read-vs-edit distinction. Verified against a real OpenHands run rather than
+    the mini-swe-agent corpus, which cannot exhibit this: it ran in text-action mode and
+    contains no str_replace_editor call at all."""
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("str_replace_editor",
+                          {"command": "view", "path": "/a/b.py"}) == "str_replace_editor:view"
+    assert _refine_action("str_replace_editor",
+                          {"command": "str_replace"}) == "str_replace_editor:str_replace"
+    # arguments arrive as a JSON string on the streaming path
+    assert _refine_action("str_replace_editor",
+                          '{"command":"create"}') == "str_replace_editor:create"
+
+
+def test_editor_subcommand_never_echoes_anything_but_an_identifier():
+    """The value is an enum, but it is still model output, so it is held to a shape
+    rather than trusted. Degrading to the bare tool name loses detail; echoing loses
+    the privacy property the whole tap is built on."""
+    from euthyna.gateway.taps import _refine_action
+    for bad in ("rm -rf / #inject", "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI",
+                "/etc/passwd", "a" * 40, "", "View", 123, None, ["view"]):
+        assert _refine_action("str_replace_editor", {"command": bad}) == "str_replace_editor"
+    assert _refine_action("str_replace_editor", {}) == "str_replace_editor"
+    assert _refine_action("str_replace_editor", "not json") == "str_replace_editor"
+
+
+def test_shell_tools_are_unaffected_by_the_subcommand_path():
+    from euthyna.gateway.taps import _refine_action
+    assert _refine_action("execute_bash", {"command": "grep -rn foo"}) == "execute_bash:grep"
+    assert _refine_action("bash", {"command": "sed -i s/a/b/ f"}) == "bash:sed"
+    assert _refine_action("finish", {}) == "finish"
+
+
+def test_digests_separate_identical_calls_from_merely_similar_ones():
+    """The action name answers 'what kind of step'; the digest answers 'the same step
+    again?'. Flow signatures need the first, repetition needs the second."""
+    from euthyna.gateway.taps import extract_action_digests, extract_actions
+    def call(cmd):
+        return {"function": {"name": "bash",
+                             "arguments": '{"command": "%s"}' % cmd}}
+    body = {"choices": [{"message": {"tool_calls": [
+        call("grep -rn a src/"), call("grep -rn a src/"), call("grep -rn b src/")]}}]}
+    actions = extract_actions("openai", body, None)
+    digests = extract_action_digests("openai", body, None)
+    assert actions == ["bash:grep"] * 3          # the verb cannot tell them apart
+    assert len(digests) == len(actions)          # positionally aligned
+    assert digests[0] == digests[1] != digests[2]
+
+
+def test_digest_never_carries_the_command_itself():
+    from euthyna.gateway.taps import _payload_digest
+    d = _payload_digest({"command": "curl -H 'Authorization: Bearer sk-secret' example.com"})
+    assert d and len(d) == 16
+    for leak in ("curl", "secret", "sk-", "Authorization", "example.com"):
+        assert leak not in d
+
+
+def test_the_streaming_and_body_paths_digest_a_call_identically():
+    """A session that mixed the two would otherwise under-count its own repetition."""
+    from euthyna.gateway.taps import _payload_digest
+    assert _payload_digest('{"command": "ls -la"}') == _payload_digest({"command": "ls -la"})
+    assert _payload_digest('{"a":1,"b":2}') == _payload_digest({"b": 2, "a": 1})
+
+
+def test_calls_with_no_arguments_have_no_identity():
+    """`{}` serialises non-empty, so digesting it would make every argument-less call
+    look like a repeat of every other."""
+    from euthyna.gateway.taps import _payload_digest
+    for empty in (None, "", "   ", {}, [], "{}", "[]", "  {}  "):
+        assert _payload_digest(empty) is None
+
+
+def test_an_unreadable_response_yields_no_digests_rather_than_empty_ones():
+    from euthyna.gateway.taps import extract_action_digests, extract_actions
+    assert extract_actions("openai", None, None) is None
+    assert extract_action_digests("openai", None, None) is None
+
+
+# Verbatim shapes from an OpenHands 0.53 run against a model that cannot emit native tool
+# calls under agent-shaped prompts. Note there is no closing </function>.
+_OH_VIEW = ("<function=str_replace_editor>\n<parameter=path>/w/a.py</parameter>\n"
+            "<parameter=command>view</parameter>\n<parameter=view_range>[45, 51]</parameter>\n")
+_OH_BASH = "<function=execute_bash>\n<parameter=command>cd /w && pytest -x</parameter>\n"
+
+
+def _content(text):
+    return {"choices": [{"message": {"content": text}}]}
+
+
+def test_openhands_prompt_based_tool_calls_are_recorded():
+    """Without this the tap reads OpenHands runs as 'the model called no tools' — which is
+    indistinguishable, downstream, from a model that genuinely did nothing."""
+    from euthyna.gateway.taps import extract_actions
+    assert extract_actions("openai", _content(_OH_VIEW), None) == ["str_replace_editor:view"]
+    assert extract_actions("openai", _content(_OH_BASH), None) == ["execute_bash:pytest"]
+    # order preserved across several blocks in one response
+    assert extract_actions("openai", _content(_OH_VIEW + _OH_BASH), None) == [
+        "str_replace_editor:view", "execute_bash:pytest"]
+
+
+def test_a_missing_closing_tag_does_not_silently_swallow_the_action():
+    """The model does not emit </function>, and the final </parameter> is often absent too.
+    A pattern requiring either records nothing while looking like it worked."""
+    from euthyna.gateway.taps import extract_actions
+    unclosed = "<function=execute_bash>\n<parameter=command>ls -la"
+    assert extract_actions("openai", _content(unclosed), None) == ["execute_bash:ls"]
+
+
+def test_openhands_parameter_values_are_never_echoed():
+    from euthyna.gateway.taps import extract_actions
+    leaky = ("<function=str_replace_editor>\n<parameter=command>str_replace</parameter>\n"
+             "<parameter=old_str>AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI</parameter>\n")
+    actions = extract_actions("openai", _content(leaky), None)
+    assert actions == ["str_replace_editor:str_replace"]
+    assert "wJalrX" not in "".join(actions)
+
+
+def test_the_other_harnesses_text_formats_still_parse():
+    from euthyna.gateway.taps import extract_actions
+    assert extract_actions(
+        "openai", _content("<mswea_bash_command>grep -rn x</mswea_bash_command>"), None
+    ) == ["bash:grep"]
+    assert extract_actions("openai", _content("prose with no tool call"), None) == []
+
+
+def test_a_directory_change_does_not_stand_in_for_the_real_command():
+    """A shell agent working in a repo prefixes almost everything with `cd`. Naming the
+    line by its first token records the navigation instead of the work: on the 28-instance
+    SWE-bench corpus 339 of 1004 commands (33.8%) recorded as bash:cd, and every one was
+    a compound. `cd` fell to 0 once this was fixed; python went 38 -> 112."""
+    from euthyna.gateway.taps import _command_verb
+    assert _command_verb("cd /repo && grep -rn foo") == "grep"
+    assert _command_verb("cd /a && sed -i s/x/y/ f.py") == "sed"
+    assert _command_verb("cd /a; ls -la") == "ls"
+    assert _command_verb("cd /a || echo fail") == "echo"
+    assert _command_verb("pushd /a && pytest -x") == "pytest"
+    assert _command_verb("MY_VAR=1 cd /a && pytest") == "pytest"
+    assert _command_verb("cd /a && /usr/bin/python3 -m pytest") == "python3"
+
+
+def test_a_bare_navigation_command_is_still_reported_as_one():
+    """The point is to skip navigation that PREFIXES work, not to lose it when it is the
+    work — otherwise `cd` becomes unnameable rather than merely uninteresting."""
+    from euthyna.gateway.taps import _command_verb
+    assert _command_verb("cd /repo") == "cd"
+    assert _command_verb("cd") == "cd"
+    assert _command_verb("cd /a && cd /b") == "cd"
+
+
+def test_skipping_a_segment_still_cannot_put_data_in_the_ledger():
+    """Each segment goes through the same allowlist, so advancing past `cd` can cost
+    detail but can never promote a fragment of user data into an action name."""
+    from euthyna.gateway.taps import _command_verb
+    assert _command_verb("cd /a && AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI") == "cd"
+    assert _command_verb("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI") is None
+    assert _command_verb("cd /a && ./THIS_IS_A_VERY_LONG_NAME_INDEED") == "cd"

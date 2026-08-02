@@ -1,0 +1,15 @@
+name: cost-primary
+notes: >
+  Cost-primary experiment. Tasks were selected by calibration: only those the baseline
+  solves reliably qualify, because cost is compared solely on pairs both arms solved
+  and a task the baseline cannot solve contributes no such pairs. The harness carries
+  the fix for the defect that invalidated the first pilot: no absolute path outside the
+  workspace appears in the agent prompt. The placebo arm is mandatory here — the first
+  pilot's separation tracked the mere presence of an AGENTS.md file (Fisher exact
+  p=0.0152), so an arm delivering inert text through the same channel is what separates
+  the skill's content from its container.
+tasks: [double, dedupe]
+arms: [control, candidate, placebo]
+reps: 7
+seed: cost-primary-2026-07-29
+include_raw_baseline: false

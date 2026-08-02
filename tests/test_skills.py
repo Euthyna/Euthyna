@@ -70,22 +70,59 @@ def test_registry_never_presents_more_than_the_cap():
     assert hits[0].steps_replaced > hits[-1].steps_replaced  # best-first
 
 
-def test_shipped_skills_load_and_stay_within_gates():
+def test_shipped_skills_load_and_cite_their_provenance():
+    """Provenance is required of everything; the size gate applies to what SHIPS.
+
+    A skill with steps_replaced=None has not been measured and gate_failures already says
+    "deploy only behind an A/B" -- it is under test, not shipped. Holding it to the shipping
+    gate would force it to be shrunk to pass a bar it is not yet claiming to clear, and the
+    experiment measuring it would then be measuring a different document.
+    """
     reg = SkillRegistry.load(SKILLS_DIR)
     assert len(reg.skills) >= 3
-    assert reg.gate_failures() == []
     for s in reg.skills:
         assert s.source, f"{s.name} must cite the corpus it was mined from"
+        assert s.harness, f"{s.name} must record the vocabulary its signature speaks"
+        if s.steps_replaced is None:
+            # Not shipped. It must still be visibly failing the gate, never silently exempt.
+            assert any("not yet measured" in f for f in s.gate_failures()), s.name
+            continue
         assert s.body_tokens <= GATES["max_body_tokens"]
 
 
+def test_the_only_gate_failure_is_the_one_we_measured():
+    """`swe-patch-probe` fails the amortization gate, and it is supposed to.
+
+    It was measured replacing 0 steps in the cost-primary run. A gate that stayed clean
+    after that measurement would be a gate that ignores measurements.
+    """
+    reg = SkillRegistry.load(SKILLS_DIR)
+    failures = reg.gate_failures()
+    # Asserted as a property, not a count: the registry gains skills, and a test that
+    # pins the total starts failing for reasons that have nothing to do with the gate.
+    assert any(f.startswith("swe-patch-probe: measured to replace 0 steps")
+               for f in failures), failures
+    # Every other failure must be one of the two honest states, never a silent pass.
+    for f in failures:
+        assert ("measured to replace" in f or "not yet measured" in f
+                or "declared to replace" in f or "break-even" in f
+                or "nothing to key on" in f), f'unexpected gate failure: {f}'
+
+
 def test_shipped_skills_verdicts_are_derived_not_declared():
-    """The most-repeated ritual in the corpus is a one-step one, and it must come out
-    CANNOT_PAY — frequency is not value."""
+    """Frequency is not value, and neither is a step count inherited from another corpus.
+
+    `swe-submit` is the most-repeated ritual in the mined corpus and still CANNOT_PAY.
+    `swe-patch-probe` declares 6 steps replaced — enough to PAY on that number alone —
+    and comes out CANNOT_PAY because it was measured replacing none.
+    """
     reg = SkillRegistry.load(SKILLS_DIR)
     by_name = {r["name"]: r for r in reg.report(step_cost_tok_eq=7660)}
     assert by_name["swe-submit"]["verdict"] == "CANNOT_PAY"
-    assert by_name["swe-patch-probe"]["verdict"] == "PAYS"
+    probe = by_name["swe-patch-probe"]
+    assert probe["steps_declared"] == 6 and probe["steps_measured"] == 0
+    assert probe["steps_basis"] == "measured"
+    assert probe["verdict"] == "CANNOT_PAY"
 
 
 def test_front_matter_is_required(tmp_path):
@@ -101,3 +138,101 @@ def test_front_matter_is_required(tmp_path):
 def test_parser_exposes_skills_command():
     args = build_parser().parse_args(["skills", "--step-cost", "9000", "--turns", "20"])
     assert (args.step_cost, args.turns, args.dir) == (9000.0, 20, "skills")
+
+
+def test_measured_tokens_beat_the_estimate():
+    """A footprint observed on the wire always wins over chars/4 arithmetic."""
+    s = make(body="x" * 400)
+    assert not s.tokens_are_measured
+    estimated = s.body_tokens
+    s.measured_body_tokens = 999
+    assert s.tokens_are_measured and s.body_tokens == 999 != estimated
+
+
+def test_estimator_carries_the_measured_correction():
+    """chars/4 ran 31% low against a real document; the estimator must not
+    under-price, because under-pricing admits skills that cannot pay."""
+    from euthyna.skills.registry import estimate_tokens
+    raw_chars_over_four = 400 * 0.25
+    assert estimate_tokens("x" * 400) > raw_chars_over_four
+
+
+def test_shipped_skill_records_its_measurement():
+    reg = SkillRegistry.load(SKILLS_DIR)
+    probe = next(s for s in reg.skills if s.name == "swe-patch-probe")
+    assert probe.tokens_are_measured, "the skill we actually ran must carry its measurement"
+    assert probe.body_tokens == 204
+
+
+def test_skills_mined_from_another_harness_can_never_fire():
+    """The defect the cost-primary experiment exposed, now a gate."""
+    from euthyna.skills.registry import SkillRegistry
+    r = SkillRegistry.load("skills")
+    dead = r.dead_triggers(["glob", "read", "edit", "bash"])   # opencode's vocabulary
+    mined = [s for s in r.skills if s.harness == "mini-swe-agent"]
+    assert mined, "the mini-swe-agent skills are the subject of this test"
+    dead_names = {d["name"] for d in dead}
+    # Every skill mined from mini-swe-agent speaks bash:* and cannot fire under opencode.
+    assert {s.name for s in mined} <= dead_names
+    assert all("can never fire here" in d["reason"] for d in dead)
+
+
+def test_no_dead_triggers_in_the_harness_they_were_mined_from():
+    from euthyna.skills.registry import SkillRegistry
+    r = SkillRegistry.load("skills")
+    assert r.dead_triggers(["bash:grep", "bash:sed", "bash:echo"]) == []
+
+
+def test_a_skill_with_no_signature_is_not_reported_as_dead():
+    """It fails a different gate — 'no trigger signature' — and should not double-report."""
+    from euthyna.skills.registry import Skill, SkillRegistry
+    s = Skill(name="x", signature=[], steps_replaced=2, body="b")
+    assert SkillRegistry([s]).dead_triggers(["read"]) == []
+    assert any("no trigger signature" in f for f in s.gate_failures())
+
+
+def test_harness_provenance_round_trips_from_front_matter():
+    from euthyna.skills.registry import load_skill
+    s = load_skill("skills/swe-patch-probe.md")
+    assert s.harness == "mini-swe-agent"
+    assert s.vocabulary == {"bash:echo", "bash:sed"}
+
+
+def test_a_measurement_overrides_the_corpus_claim_and_flips_the_verdict():
+    """The whole point: PAYS on an inherited number, CANNOT_PAY on a measured one."""
+    from euthyna.skills.registry import Skill
+    body = "x" * 800   # ~262 tok under the corrected estimator
+    declared = Skill(name="s", signature=["a"], steps_replaced=6, body=body)
+    measured = Skill(name="s", signature=["a"], steps_replaced=6, body=body,
+                     measured_steps_replaced=0, measured_in="cost-primary")
+    assert declared.economics(8000).verdict == "PAYS"
+    assert measured.economics(8000).verdict == "CANNOT_PAY"
+    assert declared.effective_steps_replaced == 6
+    assert measured.effective_steps_replaced == 0
+
+
+def test_zero_measured_steps_is_honoured_not_treated_as_missing():
+    """`or`-style precedence would read a measured 0 as absent and fall back to 6."""
+    from euthyna.skills.registry import Skill
+    s = Skill(name="s", signature=["a"], steps_replaced=6, body="b",
+              measured_steps_replaced=0)
+    assert s.effective_steps_replaced == 0
+    assert s.steps_are_measured is True
+
+
+def test_gate_message_names_its_basis_and_workload():
+    from euthyna.skills.registry import Skill
+    s = Skill(name="s", signature=["a"], steps_replaced=6, body="b",
+              measured_steps_replaced=0, measured_in="cost-primary/opencode")
+    failures = s.gate_failures()
+    assert any("measured to replace 0 steps in cost-primary/opencode" in f for f in failures)
+    d = Skill(name="s", signature=["a"], steps_replaced=0, body="b")
+    assert any(f.startswith("declared to replace 0 steps —") for f in d.gate_failures())
+
+
+def test_patch_probe_carries_its_measurement_on_disk():
+    from euthyna.skills.registry import load_skill
+    s = load_skill("skills/swe-patch-probe.md")
+    assert s.steps_replaced == 6 and s.measured_steps_replaced == 0
+    assert "opencode" in s.measured_in
+    assert s.economics(8000).verdict == "CANNOT_PAY"

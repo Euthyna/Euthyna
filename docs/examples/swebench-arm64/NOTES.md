@@ -1,0 +1,225 @@
+# What 28 SWE-bench instances measured — 2026-07-30
+
+`SWE-Lego-Qwen3-8B` (42.2% Pass@1 on SWE-bench Verified, via OpenHands) run through
+mini-SWE-agent against arm64 containers, every call through the gateway. Protocol and its
+caveats: [swebench50/NOTES.md](../swebench50/NOTES.md).
+
+**The headline is not the resolve rate. It is that ~63% of everything spent went into
+repeating the same command.**
+
+> **Two corrections to earlier drafts of this document, both mine.**
+>
+> 1. The figures first published here were 62% of actions and 68% of spend. They came from
+>    an exploratory script that filtered to `sessions with >= 5 actions` so the trace
+>    printout would be readable, and I carried that number forward as if it were the corpus
+>    figure. Short sessions are real spend and belong in the denominator. Caught by
+>    cross-checking the shipped `repetition_waste` against an independent recomputation —
+>    re-running my own script would never have found it.
+> 2. The corpus contains **duplicated work**. The first runner survived the machine sleeping
+>    and completed all 28 instances on its own; I mistook a slow run for a dead one and
+>    launched a second, which re-ran 14 of them. Rates are unaffected — see below — but
+>    totals cover 44 sessions for 28 instances.
+
+## Outcomes
+
+One complete pass over all 28:
+
+| exit status | count |
+|---|---|
+| `LimitsExceeded` (hit the 40-step budget) | **22** |
+| `RepeatedFormatError` (stopped emitting actions mid-run) | 3 |
+| `Submitted` | 3 |
+
+One instance of 28 produced a non-empty patch. Whether it *resolves* needs the SWE-bench
+evaluator, which has not been run — so **at most 1**, and the number is reported as
+"produced a patch", not as a resolve rate.
+
+The two `RepeatedFormatError` runs died at steps 21 and 15: under a long context this model
+stops producing well-formed actions at all.
+
+## The waste, measured
+
+> **Correction (2026-07-30). The headline below is overstated by 2.5×.** It counts runs of
+> the same *verb*, not the same *work*. `repetition_waste` reads `actions` from the ledger,
+> and the tap records only `bash:<verb>` — so three greps that progressively narrow a
+> search are indistinguishable from three identical greps stuck in a loop, and both are
+> charged as waste. The function's own docstring names the exception it then fails to make:
+> "the first two are the ordinary shape of narrowing a search."
+>
+> Re-measured on the 28 trajectory files, which retain the full command line, under the
+> *same* rule (charge the 3rd consecutive identical key onward), over 1,000 steps:
+>
+> | keyed on | repeated |
+> |---|---|
+> | action verb — what shipped and what is published below | **59.5%** |
+> | the full command string | **24.0%** |
+> | (command, observation) — OpenHands' stuck-detector definition | **24.0%** |
+>
+> The 59.5% reproduces the 58.8% below, which is what establishes that the keying is the
+> whole explanation rather than a difference in population or rule. **The honest figure for
+> repeated work is ~24%.** Everything below that rests on the 58.8/63.2 pair — including the
+> 61% ceiling — is inflated by the same factor and should be read as an upper bound on an
+> upper bound.
+>
+> Two further notes. Keying on `(command, observation)` gives a figure *identical* to
+> command alone, to the instance: whenever a command repeats consecutively the observation
+> repeats too, so the observation check buys robustness, not discrimination. And the fix is
+> not to log commands — that would end the tap's privacy property. It is to log a
+> **digest** of the command alongside the verb, which separates identical from different
+> without storing either.
+
+Across 44 sessions and 1,551 recorded actions (28 instances, 14 of them run twice):
+
+| | |
+|---|---|
+| actions inside a 3+ identical-verb run (beyond the 2nd) | **58.8%** |
+| token-equivalents spent on them | **63.2%** |
+
+The duplication does not move this. Computed separately on the two windows, which share no
+sessions:
+
+| window | sessions | actions | repeated | spend |
+|---|---|---|---|---|
+| before the duplicate launch | 15 | 463 | 62.9% | 66.6% |
+| after it | 30 | 1,088 | 57.0% | 61.8% |
+| whole corpus | 44 | 1,551 | **58.8%** | **63.2%** |
+
+Two independent samples land in a 57–63% band, so the rate is a property of the workload
+rather than of the accident. **Totals, by contrast, include duplicated effort and overstate
+a single 28-instance pass by roughly half.**
+
+> **Correction (2026-07-30).** The `cd` entries below are an artefact of a defect in
+> `_command_verb`, not a behaviour of the agent. It named a shell line by its first token,
+> so `cd /repo && grep -rn foo` recorded as `bash:cd`. On this corpus **339 of 1,004
+> commands (33.8%) had the wrong verb recorded**, and every one was a compound. With the
+> fix, `cd` drops to **0** and the work it was hiding appears: `python` 38 -> 112,
+> `python3` 2 -> 74, `grep` 307 -> 384, `sed` 20 -> 56, and `rm` and `cp` show up at all
+> (0 -> 17 and 0 -> 9). **The `('cd','cd','cd')` flow below does not exist.** The
+> `('grep','grep','grep')` count is understated for the same reason. Command-keyed figures
+> are unaffected, since they never went through the verb.
+
+The most frequent flows in the entire corpus are degenerate:
+
+```
+('cd',   'cd',   'cd')     316 occurrences across 19 sessions   <- ARTEFACT, see above
+('grep', 'grep', 'grep')   232 occurrences across 22 sessions
+('find', 'find', 'find')    75 occurrences across 12 sessions
+('mkdir','mkdir','mkdir')   68 occurrences across  3 sessions
+```
+
+The `cd` loops are the clearest: mini-SWE-agent executes every command in a **fresh
+subshell**, so `cd` never persists — and `swebench_xml.yaml:83` says so explicitly. The
+model is told the rule and loops on it anyway. This is what out-of-distribution looks like
+in practice: a model that scores 42.2% in its native harness does not merely score lower
+elsewhere, it degenerates.
+
+**Raising the step limit would buy more loop iterations, not more solutions.**
+
+## The apparent ritual does not survive inspection
+
+At first reading the corpus looks like it contains a genuine localization ritual:
+
+```
+('find', 'grep', 'grep')    21 occurrences across 15 of 35 sessions
+```
+
+It does not. Classifying each occurrence by whether any of its three positions sits inside
+a run of 3+ identical verbs:
+
+| 3-gram | total | **healthy** | inside a loop |
+|---|---|---|---|
+| `(find, grep, grep)` | 24 | **5** | 19 |
+| `(find, find, grep)` | 12 | **3** | 9 |
+| `(grep, grep, grep)` | 252 | **0** | 252 |
+| `(cd, cd, cd)` | 325 | **0** | 325 |
+
+The best candidate is **79% an artifact of thrashing**, and five clean occurrences across
+an entire 28-instance corpus is not a flow — it is noise with a shape.
+
+`swe-localize-symbol`'s exact signature, `(grep, grep, grep)`, occurs **252 times and not
+once outside a loop**. Whether we keep its current key or re-mine it against this
+vocabulary, it fires only during pathology. For this workload that skill is not
+mis-keyed; it is unmineable.
+
+**So this corpus cannot support re-distillation.** That is the answer pass 1 existed to
+produce, and it is worth more than a resolve rate would have been: the plan was to harvest
+successful trajectories and distil skills from their recurring rituals, and the measurement
+says the recurring patterns here are overwhelmingly failure, not ritual.
+
+The single non-empty patch is the exception that shows what a productive trajectory looks
+like:
+
+```
+find find find ls grep grep grep grep grep grep grep sed grep sed sed grep mkdir find grep sed sed echo
+```
+
+Even it opens with seven consecutive greps — but the tail is a real edit-verify loop,
+`sed grep sed sed grep`, which is roughly what `swe-patch-probe` compiles. It occurred in
+exactly one run out of 28, so it is an observation, not evidence.
+
+## The shipped skill, for the record
+
+Excluding pure repetition, the strongest recurring flow is:
+
+```
+('find', 'grep', 'grep')    21 occurrences across 15 of 35 sessions
+('find', 'find', 'grep')    10 occurrences across 10 sessions
+```
+
+A genuine localization ritual — locate candidate files, then narrow twice — present in
+nearly half of all runs. `swe-localize-symbol` compiles exactly this idea and its signature
+is `[bash:grep, bash:grep, bash:grep]`: **mined from a different model's traces, and keyed
+one verb off from what this workload actually does.**
+
+## A failure mode worse than a dead trigger
+
+Against this corpus the vocabulary finally matches, and `dead_triggers` reports **0 of 3**
+— every shipped skill is live. That is not the good news it looks like.
+
+`swe-localize-symbol`'s trigger would fire **272 times across 37 sessions, and 195 of those
+(72%) land inside a 5-long identical-verb run** — the skill gets presented while the agent
+is stuck grepping in circles, which is precisely when a 3-step localization shortcut cannot
+help. Its economics were computed for a healthy three-step ritual; it would instead be
+offered, and charged for, in the middle of a pathology.
+
+> A trigger that never fires wastes nothing. A trigger that fires *during* the pathology it
+> cannot fix is charged for every time.
+
+The registry cannot tell these apart, because a signature is a sequence of action names and
+has no notion of whether the flow is making progress. Three identical greps that narrow a
+search and three identical greps that are a stuck loop are the same string.
+
+**So a signature needs a progress predicate, not just an action pattern.** That is a design
+gap in RFC-002 §6, and it was invisible until a real corpus contained both cases.
+
+## Sizing the intervention the data points at
+
+If a guard interrupted every same-verb run once it stopped making progress, what is the
+most it could recover? Over 1,470 calls and 12,965,552 tok-eq:
+
+| | |
+|---|---|
+| calls whose action was the 3rd+ of a run | 836 — **57%** |
+| their direct cost | 8,009,679 tok-eq — **62%** |
+| mean step cost | 8,820 tok-eq |
+| what eliminating one step *actually* saves | **9,516** (+8%, from the tokens it would have added to every later prefix) |
+| **ceiling if every 3rd+ repetition vanished** | **7,955,234 tok-eq — 61% of the corpus** |
+
+> This is a **ceiling, not a forecast**. It assumes the repetitions vanish and nothing
+> replaces them. A real guard makes the agent do something else instead, and that something
+> costs — so the achievable saving is strictly less. It is the right number for deciding
+> whether the intervention is worth designing, and the wrong number to quote as a result.
+
+Set against it: a skill compressing a three-step ritual competes for single-digit percent,
+and [the section above](#the-apparent-ritual-does-not-survive-inspection) shows the ritual
+is not there to compress.
+
+## What this says about the next step
+
+The corpus is rich but the interventions it suggests are inverted from the plan. A skill
+compressing a 3-step ritual competes for a few percent. A guard that interrupts a
+same-verb run once it stops making progress is competing for **~63%**.
+
+That is a different kind of intervention — waste elimination rather than ritual compression
+— and the cost-primary harness measures it the same way, on tasks where the outcome is held
+constant.

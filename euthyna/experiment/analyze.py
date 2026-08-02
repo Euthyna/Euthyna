@@ -14,8 +14,11 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from euthyna.ledger import aggregate, load_rows
+import datetime as _dt
 
+from euthyna.ledger import aggregate, load_rows, step_cost, step_cost_quality
+
+from .cost import compare_cost, cost_of
 from .plan import RAW_ARM, SHAM_ARM
 from .stats import PairedResult, mcnemar_exact
 
@@ -44,6 +47,92 @@ def session_costs(dates: list) -> dict:
     return costs
 
 
+def overlapping_runs(outcomes: list) -> set:
+    """Runs whose time windows intersect another's, so containment cannot attribute them.
+
+    Serial runs have disjoint windows and every ledger call lands in exactly one. Run the
+    harness with parallel workers and the windows interleave: a call inside two windows
+    gets counted in both, which silently inflates the cost of every arm. This names those
+    runs so they can be excluded rather than double-counted.
+    """
+    spans = [(r["started_at"], r["ended_at"], r.get("run_id")) for r in outcomes
+             if r.get("started_at") is not None and r.get("ended_at") is not None
+             and r.get("run_id") is not None]
+    spans.sort()
+    bad: set = set()
+    for i, (a0, a1, aid) in enumerate(spans):
+        for b0, b1, bid in spans[i + 1:]:
+            if b0 > a1:
+                break            # sorted by start: nothing later can overlap either
+            bad.add(aid)
+            bad.add(bid)
+    return bad
+
+
+def window_costs(outcomes: list, dates: list) -> dict:
+    """run_id -> cost, attributed by time containment rather than session identity.
+
+    Session attribution is not one-to-one: a single agent invocation can open more than
+    one upstream session (opencode opens a second, tiny one to title the conversation),
+    so keying cost on a session id silently drops part of the run. Runs executed
+    serially have disjoint [started_at, ended_at] windows, which makes containment both
+    exact and auditable — every ledger call lands in at most one run.
+
+    Requires ``started_at``/``ended_at`` on each outcome row. Rows without them are
+    skipped rather than guessed at.
+    """
+    calls = []
+    for date in dates:
+        for r in load_rows(date):
+            ts = r.get("ts")
+            if isinstance(ts, str):  # ISO form, as written by some tap versions
+                try:
+                    ts = _dt.datetime.fromisoformat(ts).timestamp()
+                except ValueError:
+                    continue
+            if ts is not None:
+                calls.append((ts, step_cost(r.get("cost") or {})))
+    ambiguous = overlapping_runs(outcomes)
+    out: dict = {}
+    for row in outcomes:
+        rid, t0, t1 = row.get("run_id"), row.get("started_at"), row.get("ended_at")
+        if rid is None or t0 is None or t1 is None:
+            continue
+        if rid in ambiguous:
+            # A call inside two windows belongs to at most one run, and the clock cannot
+            # say which. Counting it in both inflates every arm; leaving these runs
+            # unpriced makes them drop out of the comparison instead, which is the same
+            # rule the cache fields follow — unknown is never rendered as a number.
+            continue
+        out[rid] = sum(c for ts, c in calls if t0 <= ts <= t1 and c is not None)
+    return out
+
+
+def cost_basis(outcomes: list, dates: list) -> dict:
+    """How much of the attributed cost is measured versus assumed.
+
+    Every step cost in a comparison is only as good as the cache split behind it, and a
+    backend that never reports one turns the whole prompt into an upper bound. Reporting
+    the mix is the difference between a cost result and a cost claim.
+    """
+    windows = [(r["started_at"], r["ended_at"]) for r in outcomes
+               if r.get("started_at") is not None and r.get("ended_at") is not None]
+    mix: dict = {}
+    for date in dates:
+        for r in load_rows(date):
+            ts = r.get("ts")
+            if isinstance(ts, str):
+                try:
+                    ts = _dt.datetime.fromisoformat(ts).timestamp()
+                except ValueError:
+                    continue
+            if ts is None or not any(t0 <= ts <= t1 for t0, t1 in windows):
+                continue
+            q = step_cost_quality(r.get("cost") or {})
+            mix[q] = mix.get(q, 0) + 1
+    return mix
+
+
 def compare(outcomes: list, arm_a: str, arm_b: str,
             costs: Optional[dict] = None) -> PairedResult:
     """Pair arm_b against arm_a on identical (task, rep) cells."""
@@ -62,7 +151,7 @@ def compare(outcomes: list, arm_a: str, arm_b: str,
         else:
             null += 1
         if costs:
-            ca, cb = costs.get(a.get("session")), costs.get(b.get("session"))
+            ca, cb = cost_of(a, costs), cost_of(b, costs)
             if ca is not None and cb is not None:
                 cost_deltas.append(cb - ca)
     pairs = helped + harmed + null
@@ -74,6 +163,62 @@ def compare(outcomes: list, arm_a: str, arm_b: str,
                            if cost_deltas else None),
         cost_pairs=len(cost_deltas),
     )
+
+
+def cost_per_solve(outcomes: list, costs: Optional[dict] = None) -> dict:
+    """Cost per SOLVED task, per arm — the only denominator that means anything.
+
+    A cheap failure is not cheap, it is worthless: the tokens bought nothing and the
+    task still has to be done. Comparing a failed run's cost against a solved run's
+    makes the arm that gives up fastest look best, which is why this is reported
+    separately from the paired cost delta. An arm that solves nothing is `None`,
+    never a small number.
+    """
+    per: dict = {}
+    for r in outcomes:
+        a = per.setdefault(r["arm"], {"runs": 0, "solved": 0, "tokens": 0.0, "priced": 0})
+        a["runs"] += 1
+        a["solved"] += bool(r["resolved"])
+        c = (costs or {}).get(r.get("session"))
+        if c is not None:
+            a["tokens"] += c
+            a["priced"] += 1
+    for a in per.values():
+        a["tokens"] = round(a["tokens"], 1)
+        a["per_solve"] = (round(a["tokens"] / a["solved"], 1)
+                          if a["solved"] and a["priced"] else None)
+    return per
+
+
+def baseline_check(outcomes: list, control: str) -> dict:
+    """Can the control arm do the task at all?
+
+    Every comparison below is against this arm, so if it solves nothing the experiment
+    is measuring capability rather than the intervention — and if it solves everything
+    the binary endpoint is saturated and only cost can move. Neither is a reason to
+    stop, but both change what the numbers mean, and the first invalidated this
+    project's own first pilot without anything in the analysis noticing.
+    """
+    runs = [r for r in outcomes if r["arm"] == control]
+    solved = sum(1 for r in runs if r.get("resolved"))
+    status = "ok"
+    if not runs:
+        status = "absent"
+    elif solved == 0:
+        status = "never_solves"
+    elif solved == len(runs):
+        status = "always_solves"
+    return {"arm": control, "runs": len(runs), "solved": solved, "status": status,
+            "note": {
+                "absent": f"no runs for control arm {control!r}",
+                "never_solves": (f"control solved 0 of {len(runs)}: every comparison "
+                                 "below measures capability, not the intervention, and "
+                                 "no cost comparison is possible"),
+                "always_solves": (f"control solved {len(runs)} of {len(runs)}: the "
+                                  "binary endpoint is saturated, so read the cost "
+                                  "endpoint"),
+                "ok": "",
+            }[status]}
 
 
 def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
@@ -88,6 +233,10 @@ def analyze(outcomes: list, control: str, costs: Optional[dict] = None) -> dict:
         results.append({**r.as_dict(), "verdict": r.verdict(floor=floor)})
     return {
         "control": control,
+        "baseline": baseline_check(outcomes, control),
+        "cost_per_solve": cost_per_solve(outcomes, costs),
+        "cost_primary": [compare_cost(outcomes, control, a, costs).as_dict()
+                         for a in arms if a != SHAM_ARM] if costs else [],
         "floor": ({**floor.as_dict(), "verdict": floor.verdict()} if floor else None),
         "results": results,
         "raw_baseline_present": RAW_ARM in arms,

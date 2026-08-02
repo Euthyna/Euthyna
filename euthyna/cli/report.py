@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 
-from euthyna.ledger import aggregate, home, load_rows
+from euthyna.ledger import aggregate, home, load_rows, repetition_waste
 
 
 def run(args) -> int:
@@ -22,6 +22,7 @@ def run(args) -> int:
         print(f"report: no ledger rows for {date} under {home() / 'ledger'}")
         return 0
 
+    waste = repetition_waste(rows)
     header = f"{'session':<18} {'calls':>5} {'prompt':>9} {'cached':>9} {'compl':>7} {'$':>10} {'prefix':>7}"
     print(f"euthyna report — {date}")
     print(header)
@@ -67,6 +68,18 @@ def run(args) -> int:
         detail = " · ".join(f"{k} ×{v}" for k, v in sorted(causes.items(), key=lambda kv: -kv[1]))
         print(f"prefix mutations: {mutations} ({detail}) — re-write cost "
               f"{cost:,.0f} tok-eq at 1.15× the cached prefix")
+    if waste["actions"]:
+        frac = waste["repeated_cost_fraction"]
+        longest = waste["longest_run"]
+        print(f"repetition: {waste['repeated_actions']}/{waste['actions']} actions sit "
+              f"inside a run of the same command repeated 3+ times "
+              f"({waste['repeated_fraction']:.0%} of actions, "
+              f"{frac:.0%} of spend = {waste['repeated_cost_tok_eq']:,.0f} tok-eq)")
+        if longest and longest["length"] >= 3:
+            print(f"  longest run: {longest['action']} x{longest['length']} — an agent "
+                  "repeating one command has stopped making progress, and every "
+                  "repetition after the second is charged in full")
+
     priced = [s for s in sessions.values() if s["mean_step_cost_tok_eq"] is not None]
     if priced:
         weighted = sum(s["mean_step_cost_tok_eq"] * s["calls"] for s in priced)

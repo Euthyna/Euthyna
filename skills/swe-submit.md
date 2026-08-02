@@ -5,6 +5,7 @@ signature: [bash:echo]
 steps_replaced: 1
 preconditions:
   - working tree has at least one modification
+harness: mini-swe-agent   # the vocabulary the signature above speaks
 source: mined from 20 mini-SWE-agent sessions; byte-identical in 6 of them
 ---
 

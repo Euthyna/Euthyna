@@ -1,0 +1,18 @@
+paired analysis — control arm: control
+
+arm                 pairs  help  harm  null       p      Δcost  verdict
+-----------------------------------------------------------------------
+placebo                14     1     1    12   1.000    +12,000  UNDERPOWERED
+candidate              14     1     1    12   1.000     +2,735  UNDERPOWERED
+aa_sham (floor)        14     1     0    13   1.000     -3,755  UNDERPOWERED
+-----------------------------------------------------------------------
+help/harm/null are counts of discordant pairs, not a mean — a mean would hide runs moving in opposite directions
+A/A floor discordant rate: 0.0714 — an arm at or below this is noise whatever its p-value
+
+arm                 pairs  dropped    Δmedian    Δrel       p   quality  verdict
+placebo          *     12        2       +552   -5.3%   0.470      held  NO_COST_DIFFERENCE
+candidate              12        2     +1,208   +6.3%   0.092      held  NO_COST_DIFFERENCE
+cost is compared only where BOTH arms solved the task; discordant pairs are dropped, not averaged in
+cost basis: 442 of 442 calls priced under a NO-CACHE assumption — this backend never reports a cache split, so every step cost above is an upper bound, not a measurement
+* marked rows: the per-pair median and the total disagree in sign — the spread is skewed and the verdict follows the median
+! no raw-trajectory arm: the baseline published work says can win is missing, so a positive result here is not yet meaningful
